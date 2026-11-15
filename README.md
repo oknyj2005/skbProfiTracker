@@ -12,6 +12,11 @@ afk, walk around, or reorganize your inventory.
 
 Currently targeted at **mining** and **slayer** (including Rift), on **Minecraft 26.2**.
 
+## Download
+
+Grab the jar from **[Releases](https://github.com/oknyj2005/skbProfiTracker/releases)** and drop it
+into `.minecraft/mods/`. No account needed — the release assets are public.
+
 ## Status
 
 `0.1.0` — first public release. Mining and slayer work end to end; fishing, dungeons and

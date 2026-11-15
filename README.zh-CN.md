@@ -11,6 +11,11 @@
 
 目前覆盖 **挖矿** 和 **Slayer**（含 Rift），版本 **Minecraft 26.2**。
 
+## 下载
+
+去 **[Releases](https://github.com/oknyj2005/skbProfiTracker/releases)** 下载 jar，丢进 `.minecraft/mods/` 即可。
+不需要登录 —— release 附件是公开的。
+
 ## 状态
 
 `0.1.0` —— 首个公开版本。挖矿与 Slayer 已端到端可用；钓鱼、地牢、花园不在范围内。
