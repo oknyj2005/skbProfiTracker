@@ -359,6 +359,18 @@ class SkbGui {
 
         if (lines.any { it.onClick != null } && event.screen is InventoryScreen) {
             val clickedLine = getClickedLine(textRenderer, event.mouseX, event.mouseY)
+            if (Debug.enabled) {
+                val allLines = getDisplayLinesForRender()
+                val buttonLineTexts = buttons.sortedBy { it.lineIndex }.map { it.text }
+                val hovered = getHoveredLineIndex(textRenderer, allLines, event.mouseX, event.mouseY)
+                val info = hovered?.let { getLineInfoByDisplayIndex(it) }
+                ChatUtils.sendLocalChat(
+                    "§8[click] line hover=$hovered info=${info != null} onClick=${info?.onClick != null} " +
+                        "left=${getLeftEdge(textRenderer, lines, buttonLineTexts)} " +
+                        "max=${getOverlayMaxWidth(textRenderer, lines, buttonLineTexts)} scale=$scale " +
+                        "x=${event.mouseX} y=${event.mouseY} oy=$y lh=${(textRenderer.lineHeight + 2) * scale}",
+                )
+            }
             if (clickedLine != null) {
                 clickedLine.onClick?.invoke()
                 return

@@ -9,6 +9,7 @@ import com.skbprofitracker.items.ItemColors
 import com.skbprofitracker.price.PriceMode
 import com.skbprofitracker.utils.ChatUtils
 import com.skbprofitracker.utils.CommonUtils
+import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.data.PersistentDataManager
 import com.skbprofitracker.utils.gui.GuiButton
 import com.skbprofitracker.utils.gui.LineAction
@@ -294,6 +295,7 @@ object ProfitOverlay {
                     layout.rows[index],
                     layout.tableWidth,
                     onClick = {
+                        Debug.log("[pick] ${view.activity} -> $option")
                         BucketLedger.setFilter(view.activity, option)
                         selectorOpen = false
                     },
