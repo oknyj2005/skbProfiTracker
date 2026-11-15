@@ -153,6 +153,15 @@ object InventoryItemPickupPublisher {
                     CostLedger.onItemRemoved(key, removed)
                 }
             }
+        } else if (GuiUtils.isInSacksGui()) {
+            // Moving a stack from the inventory into a sack is not a cost, but the sack chat
+            // line that follows will report it as if it were loot, so remember the amount.
+            for ((key, previousTotal) in previousInv) {
+                val currentTotal = currentInventory[key] ?: 0
+                if (currentTotal < previousTotal) {
+                    SacksItemPickupPublisher.noteManualDeposit(key, previousTotal - currentTotal)
+                }
+            }
         }
 
         for ((key, currentTotal) in currentInventory) {
