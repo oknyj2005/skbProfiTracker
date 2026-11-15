@@ -220,11 +220,9 @@ object ProfitOverlay {
             !ActivityBucket.isCounting() -> " ${GRAY}[Idle]"
             else -> ""
         }
-        // Corpse and nucleus slices carry income only (they never accumulate time, see the
-        // "no per-hour" rule), so an elapsed time line would always read 0s and mean nothing.
-        val hasTimedSlice = view.activity != Activity.MINING ||
-            view.filter == BucketLedger.ALL ||
-            view.filter == ActivityBucket.MINING_NORMAL
+        // Only the plain "Mining" slice measures a rate: it is the one that accumulates time and
+        // shows /h. All / Corpse / Nucleus are profit-only views, so a time line would be noise.
+        val hasTimedSlice = view.activity != Activity.MINING || view.filter == ActivityBucket.MINING_NORMAL
         if (hasTimedSlice) {
             lines.add(
                 LineInfo(
