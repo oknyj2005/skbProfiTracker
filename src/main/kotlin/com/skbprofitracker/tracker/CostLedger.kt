@@ -58,17 +58,42 @@ object CostLedger {
 
     fun onItemRemoved(key: String, amount: Int) {
         if (amount <= 0 || key !in COST_KEYS) return
+        // Corpse keys are charged in [onCorpseOpened] instead: the key vanishes in the same
+        // breath as the loot arrives and the corpse UI can swallow the inventory diff, which
+        // is how three opened corpses once produced only two key costs.
+        if (key in CORPSE_COST_KEYS) return
 
         val activity = ActivityBucket.bucketForPickup() ?: return
-        // A corpse key belongs to the corpse slice, not to the plain mining one: charging it to
-        // "Mining" turned a mining session deeply negative as soon as a few corpses were opened.
+        // Nucleus materials belong to the nucleus slice, not to the plain mining one.
         val bucket = when {
-            key in CORPSE_COST_KEYS -> BucketLedger.sliceStorage(activity, ActivityBucket.MINING_CORPSE)
             key in NUCLEUS_COST_KEYS -> BucketLedger.sliceStorage(activity, ActivityBucket.MINING_NUCLEUS)
             else -> BucketLedger.storage(activity)
         }
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
+        PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
+    /**
+     * Charges the key of a corpse that was just opened.
+     *
+     * The corpse header already names the type, and a lapis corpse is free, so the cost can be
+     * booked from chat even when the inventory scan never saw the key leave. [keyConsumed] is
+     * false when the Resourceful perk saved the key.
+     */
+    fun onCorpseOpened(corpseType: String, keyConsumed: Boolean) {
+        val key = when (corpseType.uppercase()) {
+            "UMBER" -> "UMBER_KEY"
+            "TUNGSTEN" -> "TUNGSTEN_KEY"
+            "VANGUARD" -> "SKELETON_KEY"
+            else -> return
+        }
+        if (!keyConsumed) return
+
+        val activity = ActivityBucket.bucketForPickup() ?: return
+        val bucket = BucketLedger.sliceStorage(activity, ActivityBucket.MINING_CORPSE)
+        bucket.sessionCosts.merge(key, 1L, Long::plus)
+        bucket.totalCosts.merge(key, 1L, Long::plus)
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 

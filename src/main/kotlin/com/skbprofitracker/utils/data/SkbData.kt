@@ -51,4 +51,7 @@ data class BucketData(
     /** Completed bosses, so the panel can show a per-kill average next to the per-hour one. */
     var sessionBosses: Long = 0,
     var totalBosses: Long = 0,
+    /** Opened Frozen Corpses, so a corpse run can be read per key instead of only per coins. */
+    var sessionCorpses: Long = 0,
+    var totalCorpses: Long = 0,
 )

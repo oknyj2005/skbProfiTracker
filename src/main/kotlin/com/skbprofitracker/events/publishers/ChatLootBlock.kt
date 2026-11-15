@@ -16,6 +16,8 @@ class ChatLootBlock(
     private val label: String,
     private val slice: String,
     private val startPattern: Regex,
+    /** Called with the header line when a block starts, before any reward line is read. */
+    private val onStart: (String) -> Unit = {},
     private val skipName: (String) -> Boolean = { false },
     private val mapName: (String) -> String = { it },
 ) {
@@ -36,6 +38,7 @@ class ChatLootBlock(
                 lastLineMs = now
                 items = 0
                 Debug.log("[loot] $label block started")
+                onStart(text)
             }
             return
         }

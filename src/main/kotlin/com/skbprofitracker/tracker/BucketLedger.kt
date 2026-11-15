@@ -30,6 +30,8 @@ data class ProfitView(
     val unpricedTypes: Int,
     /** Completed bosses in the shown slice, zero for non-slayer activities. */
     val bosses: Long = 0,
+    /** Opened corpses in the shown slice, zero outside the corpse slice. */
+    val corpses: Long = 0,
     /** Which slayer type is shown, or [BucketLedger.ALL] for the combined number. */
     val filter: String = BucketLedger.ALL,
     /**
@@ -178,6 +180,7 @@ object BucketLedger {
         bucket.sessionCosts.clear()
         bucket.sessionCoinsSpent = 0.0
         bucket.sessionBosses = 0
+        bucket.sessionCorpses = 0
     }
 
     /**
@@ -343,6 +346,12 @@ object BucketLedger {
         val totalValue = items.sumOf { it.value }
         val hours = elapsedSeconds / 3600.0
         val perHour = if (hours > 0.0) totalValue / hours else 0.0
+        val corpses = costBuckets(activity, filter).sumOf { bucket ->
+            when (viewMode) {
+                TrackerViewMode.SESSION -> bucket.sessionCorpses
+                TrackerViewMode.TOTAL -> bucket.totalCorpses
+            }
+        }
 
         return ProfitView(
             activity = activity,
@@ -353,6 +362,7 @@ object BucketLedger {
             elapsedSeconds = elapsedSeconds,
             unpricedTypes = items.count { it.unitPrice == null },
             bosses = bosses,
+            corpses = corpses,
             filter = filter,
             showPerHour = showPerHour(activity, filter),
         )
@@ -405,6 +415,20 @@ object BucketLedger {
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
+    /**
+     * One opened Frozen Corpse, counted when its loot block completes.
+     *
+     * The inventory diff cannot be trusted for the count: the key disappears in the same
+     * breath as the loot arrives, and a scan that lands while the corpse UI is open skips
+     * the removal entirely, which is how three opened corpses once produced two key costs.
+     */
+    fun addCorpseOpened(slice: String = ActivityBucket.MINING_CORPSE) {
+        val bucket = data().miningTypeBucket(slice)
+        bucket.sessionCorpses += 1
+        bucket.totalCorpses += 1
+        PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
     /** Manual correction from the overlay's [+]/[-] buttons, applied to the visible mode. */
     fun adjust(activity: Activity, key: String, delta: Long) {
         val items = currentItems(activity)
@@ -430,6 +454,7 @@ object BucketLedger {
                 bucket.totalCosts.clear()
                 bucket.totalCoinsSpent = 0.0
                 bucket.totalBosses = 0
+                bucket.totalCorpses = 0
             }
             clearSession(bucket)
         }

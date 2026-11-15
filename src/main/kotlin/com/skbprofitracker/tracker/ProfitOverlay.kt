@@ -228,6 +228,12 @@ object ProfitOverlay {
             )
         }
 
+        // A corpse run is read per key: three corpses and three keys is the number the player
+        // actually wants to check, so it sits where the slayer boss count sits.
+        if (view.activity == Activity.MINING && view.filter == ActivityBucket.MINING_CORPSE && view.corpses > 0) {
+            lines.add(LineInfo("${AQUA}Corpses opened: ${WHITE}${comma(view.corpses)}"))
+        }
+
         // Three states are worth telling apart: paused by hand, frozen because nothing has
         // happened for the grace period, and actually counting. Without the middle one the
         // panel looks alive while the clock stands still.
