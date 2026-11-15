@@ -21,6 +21,11 @@ import com.skbprofitracker.utils.ItemUtils
 import com.skbprofitracker.utils.WorldUtils
 import com.skbprofitracker.utils.getScreenCompat
 import com.skbprofitracker.utils.data.PersistentDataManager
+import net.minecraft.client.gui.screens.inventory.AnvilScreen
+import net.minecraft.client.gui.screens.inventory.BrewingStandScreen
+import net.minecraft.client.gui.screens.inventory.CraftingScreen
+import net.minecraft.client.gui.screens.inventory.EnchantmentScreen
+import net.minecraft.client.gui.screens.inventory.FurnaceScreen
 import net.minecraft.client.gui.screens.inventory.InventoryScreen
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.item.ItemStack
@@ -65,7 +70,10 @@ object InventoryItemPickupPublisher {
      * brand new item. Hypixel's recipe book also delivers the result straight into the
      * inventory without ever touching a container slot, which the container offset cannot see.
      */
-    private val CONVERSION_SCREENS = listOf("crafting", "anvil", "enchant", "brewing", "forge")
+    private val CONVERSION_SCREEN_NAMES = listOf(
+        "crafting", "anvil", "enchant", "brewing", "forge",
+        "工作台", "合成", "铁砧", "附魔", "酿造", "锻造"
+    )
     private var previousContainer: MutableMap<String, Int>? = null
     private var isInventoryLoaded = false
     private var lastFingerprint: String? = null
@@ -149,12 +157,13 @@ object InventoryItemPickupPublisher {
             return
         }
 
-        val screenTitle = GuiUtils.getCurrentChestName()
-        if (screenTitle != null && CONVERSION_SCREENS.any { screenTitle.contains(it, ignoreCase = true) }) {
+        if (isConversionScreen()) {
             previousInventory = currentInventory
             previousContainer = currentContainer
             return
         }
+
+        val screenTitle = GuiUtils.getCurrentChestName()
 
         val previousCont = previousContainer ?: emptyMap()
         val containerOpen = screenTitle != null
@@ -197,6 +206,22 @@ object InventoryItemPickupPublisher {
 
         previousInventory = currentInventory
         previousContainer = currentContainer
+    }
+
+    /**
+     * Screens where the player turns items into other items. Matched by screen class first so the
+     * client language does not matter, then by title for Hypixel's own menus.
+     */
+    private fun isConversionScreen(): Boolean {
+        val screen = SkbMod.mc.getScreenCompat() ?: return false
+        if (screen is CraftingScreen || screen is AnvilScreen || screen is EnchantmentScreen ||
+            screen is BrewingStandScreen || screen is FurnaceScreen
+        ) {
+            return true
+        }
+
+        val title = GuiUtils.getCurrentChestName() ?: return false
+        return CONVERSION_SCREEN_NAMES.any { title.contains(it, ignoreCase = true) }
     }
 
     /**
