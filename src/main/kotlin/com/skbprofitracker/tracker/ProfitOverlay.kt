@@ -50,6 +50,9 @@ object ProfitOverlay {
     fun init() {
         gui.setCoordsDataKey("skbprofit_profit")
             .setClickable(true)
+            // There is no settings toggle for this overlay: it is always "enabled".
+            // MoveGuis filters out GUIs without a settings key, which is why /skbprofit gui was empty.
+            .setSettingsKey { true }
             .setSampleLines(
                 listOf(
                     "${WHITE}Slayer profit tracker ${GRAY}[Session]",
