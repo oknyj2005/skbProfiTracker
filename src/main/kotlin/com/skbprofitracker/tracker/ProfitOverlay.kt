@@ -103,6 +103,12 @@ object ProfitOverlay {
                         selectorOpen = !selectorOpen
                     })
                 }
+                add(GuiButton(4, priceButtonText()) {
+                    BucketLedger.priceMode = when (BucketLedger.priceMode) {
+                        PriceMode.SELL_OFFER -> PriceMode.INSTA_SELL
+                        PriceMode.INSTA_SELL -> PriceMode.SELL_OFFER
+                    }
+                })
             }
         )
         val lines = buildLines(view)
@@ -338,6 +344,15 @@ object ProfitOverlay {
         } else {
             "${GRAY}[${GOLD}Click to pause${GRAY}]"
         }
+
+    /** One click flips the price source; a dropdown would be more work than it is worth. */
+    private fun priceButtonText(): String {
+        val label = when (BucketLedger.priceMode) {
+            PriceMode.SELL_OFFER -> "offer"
+            PriceMode.INSTA_SELL -> "insta"
+        }
+        return "${GRAY}[Price: ${WHITE}$label${GRAY}]"
+    }
 
     private fun resetButtonText(): String {
         val armed = System.currentTimeMillis() - resetArmedAtMs < RESET_CONFIRM_MS
