@@ -58,6 +58,14 @@ object InventoryItemPickupPublisher {
      * stack up onto the cursor and closing the screen used to count it a second time.
      */
     private var lastScreenOpen = false
+
+    /**
+     * Crafting, smelting and the other "turn A into B" screens do not produce loot: the inputs
+     * come out of the inventory and the result comes back into it, so the diff would read as a
+     * brand new item. Hypixel's recipe book also delivers the result straight into the
+     * inventory without ever touching a container slot, which the container offset cannot see.
+     */
+    private val CONVERSION_SCREENS = listOf("crafting", "anvil", "enchant", "brewing", "forge")
     private var previousContainer: MutableMap<String, Int>? = null
     private var isInventoryLoaded = false
     private var lastFingerprint: String? = null
@@ -141,8 +149,15 @@ object InventoryItemPickupPublisher {
             return
         }
 
+        val screenTitle = GuiUtils.getCurrentChestName()
+        if (screenTitle != null && CONVERSION_SCREENS.any { screenTitle.contains(it, ignoreCase = true) }) {
+            previousInventory = currentInventory
+            previousContainer = currentContainer
+            return
+        }
+
         val previousCont = previousContainer ?: emptyMap()
-        val containerOpen = GuiUtils.getCurrentChestName() != null
+        val containerOpen = screenTitle != null
 
         if (!containerOpen) {
             for ((key, previousTotal) in previousInv) {
