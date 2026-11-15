@@ -47,6 +47,9 @@ object ProfitOverlay {
     private var lastBuildMs = 0L
     private var resetArmedAtMs = 0L
 
+    /** Whether the slice picker is expanded inside the panel. */
+    private var selectorOpen = false
+
     fun init() {
         gui.setCoordsDataKey("skbprofit_profit")
             .setClickable(true)
@@ -96,7 +99,7 @@ object ProfitOverlay {
                 add(GuiButton(2, resetButtonText()) { onResetClicked(view.activity) })
                 if (view.activity == Activity.SLAYER || view.activity == Activity.MINING) {
                     add(GuiButton(3, filterButtonText(view.activity, view.filter)) {
-                        SkbProfitCommand.printTypes()
+                        selectorOpen = !selectorOpen
                     })
                 }
             }
@@ -255,8 +258,59 @@ object ProfitOverlay {
             )
         }
 
+        if (selectorOpen) appendSelector(lines, view)
+
         return lines
     }
+
+    /**
+     * Slice picker rendered inside the panel.
+     *
+     * It replaces the old chat menu: opening the inventory once and clicking the row is one
+     * step, while the chat menu needed a second round trip through the chat screen.
+     */
+    private fun appendSelector(lines: MutableList<LineInfo>, view: ProfitView) {
+        val options = selectorOptions(view.activity)
+        if (options.isEmpty()) return
+
+        lines.add(LineInfo())
+        lines.add(LineInfo("${GRAY}Show ${if (view.activity == Activity.SLAYER) "slayer type" else "mining type"}:"))
+
+        val rows = options.map { option ->
+            val (value, seconds, _) = BucketLedger.typeSummary(view.activity, option)
+            val marker = if (option == view.filter) "${GREEN}▶ " else "${GRAY}  "
+            val label = if (option == BucketLedger.ALL) "All" else option
+            listOf(
+                "$marker${if (option == view.filter) "${WHITE}$label" else "${GRAY}$label"}",
+                "${GRAY}${hours(seconds)}",
+                "${GOLD}${coins(value)}",
+            )
+        }
+        val layout = Table.layout(SkbMod.mc.font, rows, "  ")
+        options.forEachIndexed { index, option ->
+            lines.add(
+                LineInfo.withCells(
+                    layout.rows[index],
+                    layout.tableWidth,
+                    onClick = {
+                        BucketLedger.setFilter(view.activity, option)
+                        selectorOpen = false
+                    },
+                )
+            )
+        }
+    }
+
+    private fun selectorOptions(activity: Activity): List<String> = when (activity) {
+        // Riftstalker is a separate bucket (the Rift), so it is not offered as a slayer filter.
+        Activity.SLAYER -> listOf(BucketLedger.ALL) +
+            ActivityBucket.slayerTypeNames.filterNot { it == "Riftstalker Bloodfiend" }
+        Activity.MINING -> listOf(BucketLedger.ALL) + ActivityBucket.miningTypeNames
+        Activity.RIFT -> emptyList()
+    }
+
+    private fun hours(seconds: Long): String =
+        if (seconds <= 0L) "0h" else CommonUtils.formatTimeElapsed(seconds.toInt())
 
     private fun comma(value: Long): String = DecimalFormat("#,##0").format(value)
 

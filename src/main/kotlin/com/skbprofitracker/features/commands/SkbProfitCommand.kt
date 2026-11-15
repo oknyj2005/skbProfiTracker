@@ -192,7 +192,9 @@ object SkbProfitCommand {
             val mark = if (filter == row.name) "§a▶ " else "§8- "
             val name = "§f${row.name.padEnd(nameWidth)}"
             val line = if (row.isEmpty()) {
-                "$mark$name §8— no data yet"
+                // Keep the placeholder in the same columns as the numbers, otherwise the
+                // empty slice visibly breaks the alignment of everything around it.
+                "$mark$name §8${"—".padStart(hourWidth)} ${"—".padStart(valueWidth)}"
             } else {
                 val suffix = if (row.unpriced > 0) " §8(${row.unpriced} unpriced)" else ""
                 val perHour = if (row.perHourAllowed) " §7${row.perHour().padStart(perHourWidth)}" else ""

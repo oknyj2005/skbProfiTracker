@@ -64,6 +64,8 @@ data class LineInfo(
     internal val layoutTableWidth: Int? = null,
     val tooltip: List<Component>? = null,
     val actions: List<LineAction> = emptyList(),
+    /** Whole-row click handler; used by pickers that should not need a hover pill. */
+    val onClick: (() -> Unit)? = null,
 ) {
     val tableWidth: Int?
         get() {
@@ -82,12 +84,14 @@ data class LineInfo(
             text: String = "",
             tooltip: List<Component>? = null,
             actions: List<LineAction> = emptyList(),
+            onClick: (() -> Unit)? = null,
         ): LineInfo = LineInfo(
             text = text,
             cells = cells,
             layoutTableWidth = tableWidth,
             tooltip = tooltip,
             actions = actions,
+            onClick = onClick,
         )
     }
 }
@@ -352,6 +356,34 @@ class SkbGui {
                 return
             }
         }
+
+        if (lines.any { it.onClick != null } && event.screen is InventoryScreen) {
+            val clickedLine = getClickedLine(textRenderer, event.mouseX, event.mouseY)
+            if (clickedLine != null) {
+                clickedLine.onClick?.invoke()
+                return
+            }
+        }
+    }
+
+    /**
+     * Returns the row under the mouse when that row handles clicks itself.
+     *
+     * A picker inside the panel would otherwise need a hover pill per option, which hides the
+     * options until the cursor happens to land on them.
+     */
+    private fun getClickedLine(textRenderer: Font, mouseX: Double, mouseY: Double): LineInfo? {
+        val allLines = getDisplayLinesForRender()
+        val buttonLineTexts = if (GuiUtils.isInInventoryOrChat()) buttons.sortedBy { it.lineIndex }.map { it.text } else emptyList()
+        val hoveredLineIndex = getHoveredLineIndex(textRenderer, allLines, mouseX, mouseY) ?: return null
+        val lineInfo = getLineInfoByDisplayIndex(hoveredLineIndex) ?: return null
+        if (lineInfo.onClick == null) return null
+
+        val maxWidth = getOverlayMaxWidth(textRenderer, lines, buttonLineTexts) * scale.toDouble()
+        val leftEdge = getLeftEdge(textRenderer, lines, buttonLineTexts).toDouble()
+        if (mouseX < leftEdge - 2 || mouseX > leftEdge + maxWidth + 2) return null
+
+        return lineInfo
     }
 
     /**

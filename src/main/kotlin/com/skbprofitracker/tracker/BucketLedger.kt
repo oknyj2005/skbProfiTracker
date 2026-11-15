@@ -382,14 +382,24 @@ object BucketLedger {
      * the chat menu shows the lifetime picture regardless of what the overlay is set to.
      */
     fun typeSummary(activity: Activity, type: String): Triple<Double, Long, Int> {
-        val bucket = subTypes(activity)?.get(type) ?: BucketData()
+        // "All" is not a bucket of its own: it is every slice added together.
+        val buckets = if (type == ALL) {
+            costBuckets(activity, ALL)
+        } else {
+            listOf(subTypes(activity)?.get(type) ?: BucketData())
+        }
+
         var value = 0.0
         var unpriced = 0
-        for ((key, amount) in bucket.totalItems) {
-            val price = unitPrice(key)
-            if (price == null) unpriced++ else value += price * amount
+        var seconds = 0L
+        for (bucket in buckets) {
+            for ((key, amount) in bucket.totalItems) {
+                val price = unitPrice(key)
+                if (price == null) unpriced++ else value += price * amount
+            }
+            seconds += bucket.totalElapsedSeconds
         }
-        return Triple(value, bucket.totalElapsedSeconds, unpriced)
+        return Triple(value, seconds, unpriced)
     }
 
     /** Every bucket a cost has to be summed over for the given slice. */
