@@ -12,8 +12,10 @@ import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.tracker.ActivityBucket
 import com.skbprofitracker.tracker.BucketLedger
 import com.skbprofitracker.tracker.CostLedger
+import com.skbprofitracker.tracker.PurchaseGuard
 import com.skbprofitracker.tracker.SupercraftGuard
 import com.skbprofitracker.utils.ChatUtils.getFormattedString
+import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.ChatUtils.getUnformattedString
 import com.skbprofitracker.utils.CommonUtils
 import com.skbprofitracker.utils.GuiUtils
@@ -70,6 +72,14 @@ object InventoryItemPickupPublisher {
      * brand new item. Hypixel's recipe book also delivers the result straight into the
      * inventory without ever touching a container slot, which the container offset cannot see.
      */
+    /**
+     * Buying an auction hands the item straight to the inventory in the Hub, which the scan
+     * cannot tell apart from loot. Both halves of the trade are printed, so they are enough to
+     * fence the item off for a few seconds.
+     */
+    private val AUCTION_PURCHASED = Regex("^You purchased (.+) for ([\\d,]+) coins!$")
+    private val AUCTION_CLAIMED = Regex("^You claimed (.+) from .+'s auction!$")
+
     private val CONVERSION_SCREEN_NAMES = listOf(
         "crafting", "anvil", "enchant", "brewing", "forge",
         "工作台", "合成", "铁砧", "附魔", "酿造", "锻造"
@@ -125,6 +135,15 @@ object InventoryItemPickupPublisher {
             message.startsWith("You traded with") || message.contains("Trade completed") -> lastTradeMs = now
             message.startsWith("You Supercrafted") -> lastSupercraftMs = now
             message.contains("Auction") -> lastAuctionMessageMs = now
+        }
+
+        AUCTION_PURCHASED.find(message)?.let { match ->
+            if (Debug.enabled) Debug.log("[purchase] $message")
+            PurchaseGuard.guard(match.groupValues[1])
+        }
+        AUCTION_CLAIMED.find(message)?.let { match ->
+            if (Debug.enabled) Debug.log("[purchase] $message")
+            PurchaseGuard.guard(match.groupValues[1])
         }
     }
 
@@ -294,6 +313,8 @@ object InventoryItemPickupPublisher {
         // A supercrafted stack coming back out of the sacks is stock the player already owned.
         val displayName = ItemTable.getByKey(key)?.name
         if (displayName != null && SupercraftGuard.guardsInventory(displayName)) return
+
+        if (PurchaseGuard.shouldSkip(key)) return
 
         val activity = ActivityBucket.bucketForPickup() ?: return
         ActivityBucket.onWeakSignal()

@@ -27,10 +27,17 @@ object ItemTable {
 
     private var byName: Map<String, Entry> = emptyMap()
     private var byKey: Map<String, Entry> = emptyMap()
+    private var byBaseName: Map<String, Set<String>> = emptyMap()
 
     /** `Enchanted Book (Smite VI)` also shows up in chat as `Enchanted Book (Smite 6)`. */
     private val BOOK_NAME = Regex("^(Enchanted Book \\(.+?) (I|II|III|IV|V|VI|VII|VIII|IX|X)\\)$")
     private val ROMAN = listOf("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X")
+
+    /** `[Lvl 1] Ghoul (LEGENDARY)` -> `Ghoul`, the name chat uses when the pet is traded. */
+    private val PET_NAME = Regex("^\\[Lvl \\d+] (.+?) \\(([^)]+)\\)$")
+
+    /** Decorative glyphs (`✦`, `☠`, ...) some items carry in front of their name. */
+    private val LEADING_GLYPH = Regex("^[^\\p{L}\\p{N}\\[(]+")
 
     val size: Int get() = byName.size
 
@@ -61,6 +68,9 @@ object ItemTable {
 
         byName = map
         byKey = map.values.associateBy { it.key }
+        byBaseName = map.values
+            .groupBy { baseName(it.name) }
+            .mapValues { (_, entries) -> entries.map { it.key }.toSet() }
         SkbMod.LOGGER.info("Loaded ${map.size} tracked items")
     }
 
@@ -69,6 +79,28 @@ object ItemTable {
         val level = ROMAN.indexOf(match.groupValues[2]) + 1
         if (level <= 0) return null
         return "${match.groupValues[1]} $level)"
+    }
+
+    private fun baseName(name: String): String =
+        PET_NAME.matchEntire(name)?.groupValues?.get(1) ?: name
+
+    /**
+     * Keys a chat name can refer to.
+     *
+     * Chat and inventory spell the same item differently: a traded pet is `Ghoul` in chat but
+     * `[Lvl 1] Ghoul (LEGENDARY)` in the inventory, and runes carry a glyph in front. Anything
+     * the table does not know returns an empty set, which is correct: unknown items are never
+     * scored, so they do not need to be fenced off either.
+     */
+    fun getChatKeys(rawName: String): Set<String> {
+        val cleaned = rawName.replace(Regex("§."), "").trim()
+        byName[cleaned]?.let { return setOf(it.key) }
+
+        val stripped = cleaned.replace(LEADING_GLYPH, "").trim()
+        byName[stripped]?.let { return setOf(it.key) }
+        byBaseName[stripped]?.let { return it }
+
+        return emptySet()
     }
 
     fun get(displayName: String): Entry? = byName[displayName]
