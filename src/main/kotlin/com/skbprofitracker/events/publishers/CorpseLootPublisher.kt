@@ -47,6 +47,9 @@ object CorpseLootPublisher {
         // Ice Cold I is the only book a corpse drops, and the server sometimes prints it without
         // the enchantment name, so the bare "Enchanted Book" line fills in the only candidate.
         mapName = { if (it == "Enchanted Book") "Enchanted Book (Ice Cold I)" else it },
+        // Glacite Powder is a currency, not an item: no bazaar listing, no NPC price, so it can
+        // never be sold and is skipped without the "unknown loot" warning.
+        skipName = { it.contains(" Powder") },
     )
 
     fun init() {
