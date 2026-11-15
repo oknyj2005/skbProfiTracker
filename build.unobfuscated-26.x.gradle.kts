@@ -40,6 +40,9 @@ configurations.configureEach {
 repositories {
     maven("https://maven.fabricmc.net/")
     maven("https://repo.essential.gg/repository/maven-public")
+    // Maven Central mirrors first: GitHub Actions IPs get rate limited (429) by repo.maven.apache.org.
+    maven("https://maven-central.storage-download.googleapis.com/maven2/")
+    maven("https://maven.aliyun.com/repository/public")
 }
 
 dependencies {

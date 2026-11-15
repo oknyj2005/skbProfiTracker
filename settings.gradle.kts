@@ -11,6 +11,12 @@ pluginManagement {
         maven("https://repo.essential.gg/repository/maven-public")
 
         mavenLocal()
+
+        // Maven Central mirrors, listed before mavenCentral(): GitHub Actions runners share IPs
+        // with the rest of GitHub and regularly get "429 Too Many Requests" from repo.maven.apache.org.
+        maven("https://maven-central.storage-download.googleapis.com/maven2/")
+        maven("https://maven.aliyun.com/repository/public")
+
         mavenCentral()
 
         gradlePluginPortal()
