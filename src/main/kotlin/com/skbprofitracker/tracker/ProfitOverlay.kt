@@ -138,6 +138,10 @@ object ProfitOverlay {
         }
         lines.add(LineInfo("${WHITE}$activityName profit tracker ${GRAY}[$modeName]$filterName"))
 
+        // The picker sits right under the title so the item rows below are pushed down while it
+        // is open, instead of the panel growing somewhere off the bottom of the list.
+        if (selectorOpen) appendSelector(lines, view)
+
         // Feesh folds everything below a value threshold into one "Other items" row instead of
         // printing a dozen rows worth a few coins each, and drops whatever overflows the list.
         val priced = view.items.filter { it.unitPrice != null }
@@ -258,8 +262,6 @@ object ProfitOverlay {
             )
         }
 
-        if (selectorOpen) appendSelector(lines, view)
-
         return lines
     }
 
@@ -277,12 +279,11 @@ object ProfitOverlay {
         lines.add(LineInfo("${GRAY}Show ${if (view.activity == Activity.SLAYER) "slayer type" else "mining type"}:"))
 
         val rows = options.map { option ->
-            val (value, seconds, _) = BucketLedger.typeSummary(view.activity, option)
+            val (value, _, _) = BucketLedger.typeSummary(view.activity, option)
             val marker = if (option == view.filter) "${GREEN}▶ " else "${GRAY}  "
             val label = if (option == BucketLedger.ALL) "All" else option
             listOf(
                 "$marker${if (option == view.filter) "${WHITE}$label" else "${GRAY}$label"}",
-                "${GRAY}${hours(seconds)}",
                 "${GOLD}${coins(value)}",
             )
         }
@@ -308,9 +309,6 @@ object ProfitOverlay {
         Activity.MINING -> listOf(BucketLedger.ALL) + ActivityBucket.miningTypeNames
         Activity.RIFT -> emptyList()
     }
-
-    private fun hours(seconds: Long): String =
-        if (seconds <= 0L) "0h" else CommonUtils.formatTimeElapsed(seconds.toInt())
 
     private fun comma(value: Long): String = DecimalFormat("#,##0").format(value)
 
