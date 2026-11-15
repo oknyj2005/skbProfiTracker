@@ -15,6 +15,7 @@ import com.skbprofitracker.events.models.OwnFishingHookDespawnedEvent
 import com.skbprofitracker.events.models.WorldChangedEvent
 import com.skbprofitracker.events.models.ItemTooltipRenderedEvent
 import com.skbprofitracker.events.models.ScreenBeforeInitEvent
+import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.ChatUtils.getFormattedString
 import com.skbprofitracker.utils.ChatUtils.getUnformattedString
 import com.skbprofitracker.utils.InputUtils
@@ -39,7 +40,17 @@ object EventBus {
     private val subscribers = mutableMapOf<KClass<*>, MutableList<(Any) -> Unit>>()
 
     fun publish(event: Any) {
-        subscribers[event::class]?.forEach { it -> it(event) }
+        // Chat handlers run inside the packet handler: an exception escaping from here makes
+        // vanilla drop the connection ("Failed to handle packet ... disconnecting"), so every
+        // subscriber is isolated and only logged.
+        subscribers[event::class]?.forEach { handler ->
+            try {
+                handler(event)
+            } catch (t: Throwable) {
+                Debug.log("[event] ${event::class.simpleName} handler failed: ${t.message}")
+                t.printStackTrace()
+            }
+        }
     }
 
     fun <T : Any> subscribe(eventType: KClass<T>, callback: (T) -> Unit) {
