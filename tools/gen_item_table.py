@@ -123,6 +123,16 @@ CORPSE_EXTRAS = [
     ("Shattered Locket", "SHATTERED_PENDANT"),
 ]
 
+# Consumables eaten while mining. They are not loot, but the inventory scanner has to know the
+# display name before it can see the stack vanish, and the cost ledger prices them from the
+# shop they are bought at rather than from the (much thinner) auction market.
+MINING_CONSUMABLES = [
+    ("Fiesta Flask", "FIESTA_FLASK"),
+    ("Chilled Pristine Potato", "CHILLED_PRISTINE_POTATO"),
+    ("Filet O' Fortune", "FILET_O_FORTUNE"),
+    ("Powder Pie", "MINING_PUMPKIN"),
+]
+
 # Books that only ever drop from one specific source, so there is no need to guess a name from
 # the enchantment id. Ice Cold I is the only book a frozen corpse prints.
 FIXED_BOOKS = [
@@ -259,6 +269,8 @@ def mining_rows() -> list[dict]:
     for name, key in FIXED_BOOKS:
         items.append({"name": name, "key": key})
     for name, key in ESSENCES:
+        items.append({"name": name, "key": key})
+    for name, key in MINING_CONSUMABLES:
         items.append({"name": name, "key": key})
     return items
 

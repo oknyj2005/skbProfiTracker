@@ -1,6 +1,7 @@
 package com.skbprofitracker.tracker
 
 import com.skbprofitracker.features.overlays.base.TrackerViewMode
+import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.price.PriceCache
 import com.skbprofitracker.price.PriceMode
 import com.skbprofitracker.utils.data.PersistentDataManager
@@ -54,7 +55,28 @@ object CostLedger {
         "SYNTHETIC_HEART",
     )
 
-    private val COST_KEYS = CORPSE_COST_KEYS + NUCLEUS_COST_KEYS + "REHEATED_GUMMY_POLAR_BEAR"
+    /**
+     * Consumables bought from Brynmore's shop and eaten while mining, priced at the shop cost.
+     *
+     * The auction market for these is thin (a Powder Pie has a 95k BIN against a 48.5k shop
+     * price), so the shop price is what the player actually spends.
+     */
+    private val MINING_CONSUMABLES = mapOf(
+        "FIESTA_FLASK" to 2_500_000.0,
+        "CHILLED_PRISTINE_POTATO" to 242_500.0,
+        "FILET_O_FORTUNE" to 97_000.0,
+        "MINING_PUMPKIN" to 48_500.0,
+    )
+
+    private val COST_NAMES = mapOf(
+        "FIESTA_FLASK" to "Fiesta Flask",
+        "CHILLED_PRISTINE_POTATO" to "Chilled Pristine Potato",
+        "FILET_O_FORTUNE" to "Filet O' Fortune",
+        "MINING_PUMPKIN" to "Powder Pie",
+    )
+
+    private val COST_KEYS =
+        CORPSE_COST_KEYS + NUCLEUS_COST_KEYS + MINING_CONSUMABLES.keys + "REHEATED_GUMMY_POLAR_BEAR"
 
     fun onItemRemoved(key: String, amount: Int) {
         if (amount <= 0 || key !in COST_KEYS) return
@@ -171,8 +193,9 @@ object CostLedger {
         }
 
         val lines = entries.map { (key, amount) ->
-            val price = PriceCache.price(key, priceMode)
-            CostLine(key, amount, price, (price ?: 0.0) * amount)
+            val price = MINING_CONSUMABLES[key] ?: PriceCache.price(key, priceMode)
+            val name = COST_NAMES[key] ?: ItemTable.getByKey(key)?.name ?: key
+            CostLine(name, amount, price, (price ?: 0.0) * amount)
         }.sortedByDescending { it.value }
 
         val total = lines.sumOf { it.value } + coins

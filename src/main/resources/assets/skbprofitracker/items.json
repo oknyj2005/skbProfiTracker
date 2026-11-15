@@ -1659,6 +1659,26 @@
       "name": "Wither Essence",
       "key": "ESSENCE_WITHER",
       "color": "§d"
+    },
+    {
+      "name": "Fiesta Flask",
+      "key": "FIESTA_FLASK",
+      "color": "§6"
+    },
+    {
+      "name": "Chilled Pristine Potato",
+      "key": "CHILLED_PRISTINE_POTATO",
+      "color": "§5"
+    },
+    {
+      "name": "Filet O' Fortune",
+      "key": "FILET_O_FORTUNE",
+      "color": "§9"
+    },
+    {
+      "name": "Powder Pie",
+      "key": "MINING_PUMPKIN",
+      "color": "§a"
     }
   ]
 }
