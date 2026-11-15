@@ -1,5 +1,7 @@
 # skbProfiTracker
 
+**English** | [简体中文](README.zh-CN.md)
+
 Client-side Fabric mod for **Hypixel SkyBlock** that answers one question:
 
 > 我现在干的这件事，每小时值多少钱？
