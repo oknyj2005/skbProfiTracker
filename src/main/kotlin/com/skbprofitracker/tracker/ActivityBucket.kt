@@ -83,13 +83,23 @@ object ActivityBucket {
     /** SkyHanni uses this exact sidebar line to detect that the slayer boss has spawned. */
     private const val BOSS_FIGHT_LINE = "Slay the boss!"
 
-    private val MINING_WORLDS = setOf(
-        "Dwarven Mines",
-        "Crystal Hollows",
-        "Glacite Tunnels",
-        "Glacite Mineshafts",
-        "Mineshaft",
+    /**
+     * Hypixel keeps inventing new mineshaft names ("Glacite Mineshafts", "Lapis Mineshaft", ...),
+     * so mining is matched on keywords instead of an exact area list. Both the tab-list `Area:`
+     * line and the sidebar zone line are checked, because a mineshaft can replace either one.
+     */
+    private val MINING_AREA_HINTS = listOf(
+        "dwarven mines",
+        "crystal hollows",
+        "glacite",
+        "mineshaft",
     )
+
+    private fun isMiningArea(name: String?): Boolean {
+        if (name.isNullOrBlank()) return false
+        val normalized = name.lowercase()
+        return MINING_AREA_HINTS.any { normalized.contains(it) }
+    }
 
     private val RIFT_WORLDS = setOf(
         "The Rift",
@@ -278,7 +288,7 @@ object ActivityBucket {
     private fun resolveActivity(): Activity? {
         if (!WorldUtils.isInSkyblock()) return null
         if (world in RIFT_WORLDS || zone in RIFT_ZONES) return Activity.RIFT
-        if (world in MINING_WORLDS || zone in MINING_WORLDS) return Activity.MINING
+        if (isMiningArea(world) || isMiningArea(zone)) return Activity.MINING
         if (slayerQuest != null && zone in slayerQuest!!.zones) return Activity.SLAYER
         return null
     }
@@ -349,7 +359,7 @@ object ActivityBucket {
             add(
                 "§8resolve§7=${resolveActivity()?.bucketKey ?: "-"} " +
                     "§8zoneHit§7=${slayerQuest?.let { zone in it.zones } ?: false} " +
-                    "§8worldHit§7=${world in MINING_WORLDS}"
+                    "§8worldHit§7=${isMiningArea(world)} "
             )
             add("§8bazaar§7=${ageSeconds(PriceCache.lastBazaarUpdateMs)}s §8lbin§7=${ageSeconds(PriceCache.lastAuctionUpdateMs)}s §8items§7=${ItemTable.size}")
             TabListAndScoreboardUtils.getUnformattedScoreboardLines()
