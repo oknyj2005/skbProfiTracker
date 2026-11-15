@@ -220,13 +220,20 @@ object ProfitOverlay {
             !ActivityBucket.isCounting() -> " ${GRAY}[Idle]"
             else -> ""
         }
-        lines.add(
-            LineInfo(
-                "${AQUA}Elapsed time: ${WHITE}${
-                    CommonUtils.formatTimeElapsed(view.elapsedSeconds.toInt())
-                }$paused"
+        // Corpse and nucleus slices carry income only (they never accumulate time, see the
+        // "no per-hour" rule), so an elapsed time line would always read 0s and mean nothing.
+        val hasTimedSlice = view.activity != Activity.MINING ||
+            view.filter == BucketLedger.ALL ||
+            view.filter == ActivityBucket.MINING_NORMAL
+        if (hasTimedSlice) {
+            lines.add(
+                LineInfo(
+                    "${AQUA}Elapsed time: ${WHITE}${
+                        CommonUtils.formatTimeElapsed(view.elapsedSeconds.toInt())
+                    }$paused"
+                )
             )
-        )
+        }
 
         return lines
     }
