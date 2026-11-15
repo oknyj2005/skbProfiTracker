@@ -34,11 +34,15 @@ object CostLedger {
      * Only things the tracked activities actually consume: the Slayer buff consumable and
      * the keys/materials that open corpses and the Crystal Nucleus.
      */
-    private val COST_KEYS = setOf(
-        "REHEATED_GUMMY_POLAR_BEAR",
+    /** Keys that open a Frozen Corpse. */
+    private val CORPSE_COST_KEYS = setOf(
         "UMBER_KEY",
         "TUNGSTEN_KEY",
         "SKELETON_KEY",
+    )
+
+    /** Materials handed to the Crystal Nucleus. */
+    private val NUCLEUS_COST_KEYS = setOf(
         "JUNGLE_KEY",
         "GOBLIN_EGG",
         "PRECURSOR_APPARATUS",
@@ -50,14 +54,51 @@ object CostLedger {
         "SYNTHETIC_HEART",
     )
 
+    private val COST_KEYS = CORPSE_COST_KEYS + NUCLEUS_COST_KEYS + "REHEATED_GUMMY_POLAR_BEAR"
+
     fun onItemRemoved(key: String, amount: Int) {
         if (amount <= 0 || key !in COST_KEYS) return
 
         val activity = ActivityBucket.bucketForPickup() ?: return
-        val bucket = BucketLedger.storage(activity)
+        // A corpse key belongs to the corpse slice, not to the plain mining one: charging it to
+        // "Mining" turned a mining session deeply negative as soon as a few corpses were opened.
+        val bucket = when {
+            key in CORPSE_COST_KEYS -> BucketLedger.sliceStorage(activity, ActivityBucket.MINING_CORPSE)
+            key in NUCLEUS_COST_KEYS -> BucketLedger.sliceStorage(activity, ActivityBucket.MINING_NUCLEUS)
+            else -> BucketLedger.storage(activity)
+        }
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
         PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
+    /**
+     * Moves corpse/nucleus key costs that older builds booked into the plain mining slice.
+     * Idempotent: once a key is gone from the mining slice there is nothing left to move.
+     */
+    fun migrateMiningCosts() {
+        val data = PersistentDataManager.skbprofitrackerData
+        val mining = data.miningTypes[ActivityBucket.MINING_NORMAL] ?: return
+
+        var moved = false
+        for ((keys, slice) in listOf(
+            CORPSE_COST_KEYS to ActivityBucket.MINING_CORPSE,
+            NUCLEUS_COST_KEYS to ActivityBucket.MINING_NUCLEUS,
+        )) {
+            val target = data.miningTypeBucket(slice)
+            for (key in keys) {
+                mining.sessionCosts.remove(key)?.let {
+                    target.sessionCosts.merge(key, it, Long::plus)
+                    moved = true
+                }
+                mining.totalCosts.remove(key)?.let {
+                    target.totalCosts.merge(key, it, Long::plus)
+                    moved = true
+                }
+            }
+        }
+
+        if (moved) PersistentDataManager.saveSkbDataToFileAsync()
     }
 
     fun onCoinsSpent(coins: Double) {

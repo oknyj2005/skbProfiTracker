@@ -111,6 +111,7 @@ object BucketLedger {
         data().slayerTypes.values.forEach { clearSession(it) }
         data().miningTypes.values.forEach { clearSession(it) }
         migrateBaseMiningBucket()
+        CostLedger.migrateMiningCosts()
         importBossHistoryOnce()
         PersistentDataManager.saveSkbDataToFileAsync()
     }
@@ -188,6 +189,12 @@ object BucketLedger {
         val type = liveType(activity) ?: return data().bucket(bucketName(activity))
         val types = subTypes(activity) ?: return data().bucket(bucketName(activity))
         return types.getOrPut(type) { BucketData() }
+    }
+
+    /** Writes into one specific sub-type bucket, creating it on demand. */
+    fun sliceStorage(activity: Activity, slice: String): BucketData {
+        val types = subTypes(activity) ?: return data().bucket(bucketName(activity))
+        return types.getOrPut(slice) { BucketData() }
     }
 
     /** The sub-type being recorded right now ("Inferno Demonlord", "Corpse", ...), or null. */
