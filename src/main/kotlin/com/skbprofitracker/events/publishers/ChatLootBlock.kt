@@ -18,6 +18,11 @@ class ChatLootBlock(
     private val startPattern: Regex,
     /** Called with the header line when a block starts, before any reward line is read. */
     private val onStart: (String) -> Unit = {},
+    /**
+     * Called once the block is finished. Key costs are booked here and not at [onStart],
+     * because the "your key was saved" line can also arrive after the header.
+     */
+    private val onClose: () -> Unit = {},
     private val skipName: (String) -> Boolean = { false },
     private val mapName: (String) -> String = { it },
 ) {
@@ -85,8 +90,10 @@ class ChatLootBlock(
 
     private fun close() {
         if (active) Debug.log("[loot] $label block closed with $items item lines")
+        val wasActive = active
         active = false
         items = 0
+        if (wasActive) onClose()
     }
 
     private companion object {

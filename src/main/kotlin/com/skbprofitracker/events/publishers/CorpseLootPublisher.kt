@@ -11,8 +11,9 @@ import com.skbprofitracker.tracker.CostLedger
  *
  * The header carries the corpse type, which is also the only way to tell a free lapis corpse
  * from a keyed one, so the whole slice is booked from chat instead of the inventory. The key
- * cost and the corpse counter are taken from the same header: relying on the inventory diff
- * missed a key every now and then, because the key disappears while the corpse UI is opening.
+ * cost is booked when the block closes: the Resourceful perk prints
+ * `LUCKY! ... saved your key from being consumed` right around the header, and its exact
+ * position relative to the header is not worth relying on.
  */
 object CorpseLootPublisher {
     private val CORPSE_TYPE = Regex("(LAPIS|TUNGSTEN|UMBER|VANGUARD) CORPSE LOOT!")
@@ -22,15 +23,26 @@ object CorpseLootPublisher {
 
     private var lastKeySavedMs = 0L
 
+    /** Type of the corpse currently being read, charged when its block closes. */
+    private var pendingType: String? = null
+    private var pendingStartMs = 0L
+
     private val block = ChatLootBlock(
         label = "corpse",
         slice = ActivityBucket.MINING_CORPSE,
         startPattern = Regex("\\s+(LAPIS|TUNGSTEN|UMBER|VANGUARD) CORPSE LOOT!.*"),
         onStart = { header ->
-            val type = CORPSE_TYPE.find(header)?.groupValues?.get(1).orEmpty()
-            val keyConsumed = System.currentTimeMillis() - lastKeySavedMs > KEY_SAVED_WINDOW_MS
+            pendingType = CORPSE_TYPE.find(header)?.groupValues?.get(1).orEmpty()
+            pendingStartMs = System.currentTimeMillis()
             BucketLedger.addCorpseOpened()
-            CostLedger.onCorpseOpened(type, keyConsumed)
+        },
+        onClose = {
+            val type = pendingType
+            pendingType = null
+            if (!type.isNullOrEmpty()) {
+                val keyConsumed = lastKeySavedMs < pendingStartMs - KEY_SAVED_WINDOW_MS
+                CostLedger.onCorpseOpened(type, keyConsumed)
+            }
         },
         // Ice Cold I is the only book a corpse drops, and the server sometimes prints it without
         // the enchantment name, so the bare "Enchanted Book" line fills in the only candidate.
@@ -45,6 +57,6 @@ object CorpseLootPublisher {
         }
     }
 
-    /** How far around the block start a "key saved" line still applies. */
+    /** How far before the block start a "key saved" line still applies. */
     private const val KEY_SAVED_WINDOW_MS = 5_000L
 }
