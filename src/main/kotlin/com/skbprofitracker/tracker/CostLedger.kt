@@ -4,6 +4,7 @@ import com.skbprofitracker.features.overlays.base.TrackerViewMode
 import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.price.PriceCache
 import com.skbprofitracker.price.PriceMode
+import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.data.PersistentDataManager
 
 data class CostLine(
@@ -36,6 +37,19 @@ object CostLedger {
      * the keys/materials that open corpses and the Crystal Nucleus.
      */
     /** Keys that open a Frozen Corpse. */
+    /** When each key was last charged, used to swallow flickering inventory diffs. */
+    private val lastCostAt = mutableMapOf<String, Long>()
+
+    /**
+     * Potion-like consumables are player heads, so right clicking one makes the client predict a
+     * block placement first: the stack goes 1 -> 0, the server rejects it, the stack comes back
+     * 0 -> 1 and the real consumption then goes 1 -> 0 again. Two removals, one potion.
+     */
+    private const val CONSUMABLE_DEDUPE_MS = 5_000L
+
+    /** Materials are handed over in a menu, where a double click is a real second hand-in. */
+    private const val MATERIAL_DEDUPE_MS = 1_000L
+
     private val CORPSE_COST_KEYS = setOf(
         "UMBER_KEY",
         "TUNGSTEN_KEY",
@@ -84,6 +98,23 @@ object CostLedger {
         // breath as the loot arrives and the corpse UI can swallow the inventory diff, which
         // is how three opened corpses once produced only two key costs.
         if (key in CORPSE_COST_KEYS) return
+
+        // A consumed item can flicker out of the inventory and come back while the server
+        // confirms the use, and the scan then books the same removal twice (one Fiesta Flask
+        // was once charged 5M instead of 2.5M). Nothing can be consumed twice within two
+        // seconds, so a repeat of the same key inside that window is noise.
+        val now = System.currentTimeMillis()
+        val window = if (key in MINING_CONSUMABLES || key == "REHEATED_GUMMY_POLAR_BEAR") {
+            CONSUMABLE_DEDUPE_MS
+        } else {
+            MATERIAL_DEDUPE_MS
+        }
+        val lastBooked = lastCostAt[key]
+        if (lastBooked != null && now - lastBooked < window) {
+            if (Debug.enabled) Debug.log("[cost] ignored repeated $key (+$amount)")
+            return
+        }
+        lastCostAt[key] = now
 
         val activity = ActivityBucket.bucketForPickup() ?: return
         // Nucleus materials belong to the nucleus slice, not to the plain mining one.

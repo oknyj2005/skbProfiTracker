@@ -168,44 +168,48 @@ object InventoryItemPickupPublisher {
         val previousCont = previousContainer ?: emptyMap()
         val containerOpen = screenTitle != null
 
-        if (!containerOpen) {
-            for ((key, previousTotal) in previousInv) {
-                val currentTotal = currentInventory[key] ?: 0
-                if (currentTotal < previousTotal) {
-                    val removed = previousTotal - currentTotal
-                    addPendingRemoval(key, removed)
-                    CostLedger.onItemRemoved(key, removed)
+        try {
+            if (!containerOpen) {
+                for ((key, previousTotal) in previousInv) {
+                    val currentTotal = currentInventory[key] ?: 0
+                    if (currentTotal < previousTotal) {
+                        val removed = previousTotal - currentTotal
+                        addPendingRemoval(key, removed)
+                        CostLedger.onItemRemoved(key, removed)
+                    }
+                }
+            } else if (GuiUtils.isInSacksGui()) {
+                // Moving a stack from the inventory into a sack is not a cost, but the sack chat
+                // line that follows will report it as if it were loot, so remember the amount.
+                for ((key, previousTotal) in previousInv) {
+                    val currentTotal = currentInventory[key] ?: 0
+                    if (currentTotal < previousTotal) {
+                        SacksItemPickupPublisher.noteManualDeposit(key, previousTotal - currentTotal)
+                    }
                 }
             }
-        } else if (GuiUtils.isInSacksGui()) {
-            // Moving a stack from the inventory into a sack is not a cost, but the sack chat
-            // line that follows will report it as if it were loot, so remember the amount.
-            for ((key, previousTotal) in previousInv) {
-                val currentTotal = currentInventory[key] ?: 0
-                if (currentTotal < previousTotal) {
-                    SacksItemPickupPublisher.noteManualDeposit(key, previousTotal - currentTotal)
-                }
+
+            for ((key, currentTotal) in currentInventory) {
+                val previousTotal = previousInv[key] ?: 0
+                if (currentTotal <= previousTotal) continue
+
+                val increase = currentTotal - previousTotal
+                val containerDecrease = (previousCont[key] ?: 0) - (currentContainer[key] ?: 0)
+                val movedBetweenInventoryAndContainer = minOf(increase, maxOf(containerDecrease, 0))
+                var pickupAmount = increase - movedBetweenInventoryAndContainer
+                if (pickupAmount <= 0) continue
+
+                pickupAmount = applyRemovalCredit(key, pickupAmount)
+                if (pickupAmount <= 0) continue
+
+                onItemPickedUp(key, pickupAmount)
             }
+        } finally {
+            // Always advance the baseline: if anything throws half way through, keeping the
+            // old snapshot would make the next scan book the same removal a second time.
+            previousInventory = currentInventory
+            previousContainer = currentContainer
         }
-
-        for ((key, currentTotal) in currentInventory) {
-            val previousTotal = previousInv[key] ?: 0
-            if (currentTotal <= previousTotal) continue
-
-            val increase = currentTotal - previousTotal
-            val containerDecrease = (previousCont[key] ?: 0) - (currentContainer[key] ?: 0)
-            val movedBetweenInventoryAndContainer = minOf(increase, maxOf(containerDecrease, 0))
-            var pickupAmount = increase - movedBetweenInventoryAndContainer
-            if (pickupAmount <= 0) continue
-
-            pickupAmount = applyRemovalCredit(key, pickupAmount)
-            if (pickupAmount <= 0) continue
-
-            onItemPickedUp(key, pickupAmount)
-        }
-
-        previousInventory = currentInventory
-        previousContainer = currentContainer
     }
 
     /**
