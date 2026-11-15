@@ -1,0 +1,12 @@
+package com.skbprofitracker.utils.enums
+
+enum class FormattingCodes(val code: String) {
+    RESET("§r"),
+    BOLD("§l"),
+    ITALIC("§o"),
+    STRIKETHROUGH("§m"),
+    UNDERLINE("§n"),
+    OBFUSCATED("§k");
+
+    override fun toString(): String = code
+}

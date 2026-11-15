@@ -1,0 +1,260 @@
+package com.skbprofitracker.utils.gui
+
+import com.skbprofitracker.SkbMod
+import com.skbprofitracker.events.EventBus
+import com.skbprofitracker.utils.RegisterUtils
+import com.skbprofitracker.utils.ChatUtils
+import com.skbprofitracker.utils.WorldUtils
+import com.skbprofitracker.utils.InputUtils
+import com.skbprofitracker.utils.setScreenCompat
+import com.skbprofitracker.utils.data.PersistentDataManager
+import com.skbprofitracker.utils.enums.Alignment
+import com.skbprofitracker.utils.enums.ColorCodes.*
+import com.skbprofitracker.utils.enums.FormattingCodes.*
+import net.minecraft.client.gui.screens.Screen
+import net.minecraft.client.gui.GuiGraphicsExtractor as GuiGraphics
+import net.minecraft.client.input.KeyEvent
+import net.minecraft.client.input.MouseButtonEvent
+import net.minecraft.network.chat.Component
+import java.awt.Color
+import java.util.Date
+
+data class GuiMapping(
+    val settingGetter: () -> Boolean,
+    val gui: SkbGui
+)
+
+object MoveGuis {
+    const val COMMAND_NAME = "skbprofitrackerMoveAllGuis"
+
+    private val guiMappings = mutableListOf<GuiMapping>()
+
+    fun init() {
+        initializeGuiMappings()
+        RegisterUtils.command(COMMAND_NAME) {
+            moveAllGuis()
+        }
+    }
+
+    fun moveAllGuis() {
+        if (!WorldUtils.isInSkyblock()) {
+            ChatUtils.sendLocalChat("${RED}You must be on Hypixel Skyblock to use this command!", true)
+            return
+        }
+
+        val mc = SkbMod.mc
+        SkbMod.mc.schedule {
+            mc.setScreenCompat(MoveGuisScreen())
+        }
+    }
+
+    private fun initializeGuiMappings() {
+        val registeredGuis = SkbGui.getAllRegisteredGuis()
+        registeredGuis.forEach { gui ->
+            guiMappings.add(GuiMapping(
+                settingGetter = gui.getSettingsKey() ?: { false },
+                gui = gui
+            ))
+        }
+    }
+    
+    fun getEnabledGuis(): List<GuiMapping> {
+        return guiMappings.filter { it.settingGetter() }
+    }
+}
+
+class MoveGuisScreen : Screen(Component.literal("Skb Move Guis")) {
+    private val enabledGuis: List<GuiMapping> by lazy { MoveGuis.getEnabledGuis() }
+    private var isDraggingGui: SkbGui? = null
+    private var dragOffsetX = 0
+    private var dragOffsetY = 0
+    private var lastDraggedGui: SkbGui? = null
+    private val color = Color(255, 255, 255, 255).rgb
+    
+    override fun extractRenderState(context: GuiGraphics, mouseX: Int, mouseY: Int, delta: Float) {
+        val mc = minecraft ?: return
+        val textRenderer = mc.font
+        
+        val hint1 = Component.literal("${RED}${BOLD}Enable GUIs in settings to see them here!")
+        val x1 = mc.window.guiScaledWidth / 2 - textRenderer.width(hint1) / 2
+        drawStringCompat(context, textRenderer, hint1, x1, 10, color, true)
+        val hint2 = Component.literal("${YELLOW}Move them with the mouse or arrows. Press +/- or scroll to scale. Press 0 to change alignment. Press ESC to exit.")
+        val x2 = mc.window.guiScaledWidth / 2 - textRenderer.width(hint2) / 2
+        drawStringCompat(context, textRenderer, hint2, x2, 20, color, true)
+        
+        enabledGuis.forEach { mapping ->
+            val gui = mapping.gui           
+            gui.drawSample(context, textRenderer, mc)
+        }
+    }
+
+    private fun drawStringCompat(context: GuiGraphics, textRenderer: net.minecraft.client.gui.Font, text: Component, x: Int, y: Int, color: Int, shadow: Boolean) {
+        context.text(textRenderer, text, x, y, color, shadow)
+    }
+    
+    override fun mouseClicked(mouseButtonEvent: MouseButtonEvent, doubled: Boolean): Boolean {
+        if (!InputUtils.isLeftMouseButton(mouseButtonEvent.button())) return super.mouseClicked(mouseButtonEvent, doubled)
+        val mc = minecraft ?: return super.mouseClicked(mouseButtonEvent, doubled)
+        val textRenderer = mc.font
+        val mouseX = mouseButtonEvent.x()
+        val mouseY = mouseButtonEvent.y()
+        
+        enabledGuis.forEach { mapping ->
+            val gui = mapping.gui
+            
+            val isInSample = gui.isInSample(textRenderer, mc, mouseX, mouseY)
+            if (isInSample) {
+                isDraggingGui = gui
+                lastDraggedGui = gui
+                
+                dragOffsetX = (mouseX - getLeftEdge(gui)).toInt()
+                dragOffsetY = (mouseY - gui.getY()).toInt()
+                return true
+            }
+        }
+        
+        return super.mouseClicked(mouseButtonEvent, doubled)
+    }
+    
+    override fun mouseDragged(mouseButtonEvent: MouseButtonEvent, deltaX: Double, deltaY: Double): Boolean {
+        if (InputUtils.isLeftMouseButton(mouseButtonEvent.button()) && isDraggingGui != null) {
+            if (minecraft == null) return super.mouseDragged(mouseButtonEvent, deltaX, deltaY)
+
+            val newX = (mouseButtonEvent.x() - dragOffsetX).toInt()
+            val newY = (mouseButtonEvent.y() - dragOffsetY).toInt()
+            setPosition(isDraggingGui!!, newX, newY)
+            return true
+        }
+        return super.mouseDragged(mouseButtonEvent, deltaX, deltaY)
+    }
+    
+    override fun mouseReleased(mouseButtonEvent: MouseButtonEvent): Boolean {
+        if (InputUtils.isLeftMouseButton(mouseButtonEvent.button())) {
+            if (isDraggingGui != null) {
+                saveGuiCoords(isDraggingGui!!)
+            }
+            isDraggingGui = null
+        }
+        return super.mouseReleased(mouseButtonEvent)
+    }
+    
+    override fun onClose() {
+        enabledGuis.forEach { mapping ->
+            val gui = mapping.gui
+            saveGuiCoords(gui)
+        }
+        super.onClose()
+    }
+    
+    override fun keyPressed(keyEvent: KeyEvent): Boolean {
+        val mc = minecraft ?: return super.keyPressed(keyEvent)
+        val keyCode = keyEvent.key()
+        
+        if (InputUtils.isEscapeKey(keyCode)) {
+            mc.setScreenCompat(null)
+            return true
+        }
+        
+        if (lastDraggedGui != null) {
+            val gui = lastDraggedGui!!
+            when {
+                InputUtils.isLeftKey(keyCode) -> {
+                    changePosition(gui, -1, 0)
+                    return true
+                }
+                InputUtils.isRightKey(keyCode) -> {
+                    changePosition(gui, 1, 0)
+                    return true
+                }
+                InputUtils.isUpKey(keyCode) -> {
+                    changePosition(gui, 0, -1)
+                    return true
+                }
+                InputUtils.isDownKey(keyCode) -> {
+                    changePosition(gui, 0, 1)
+                    return true
+                }
+                InputUtils.isPlusKey(keyCode) -> {
+                    changeScale(gui, 0.1f)
+                    return true
+                }
+                InputUtils.isMinusKey(keyCode) -> {
+                    changeScale(gui, -0.1f)
+                    return true
+                }
+                InputUtils.isZeroKey(keyCode) -> {
+                    changeAlignment(gui)
+                    return true
+                }
+            }
+        }
+        
+        return super.keyPressed(keyEvent)
+    }
+    
+    override fun mouseScrolled(mouseX: Double, mouseY: Double, horizontalAmount: Double, verticalAmount: Double): Boolean {
+        if (lastDraggedGui != null && verticalAmount != 0.0) {
+            val delta = if (verticalAmount > 0) 0.1f else -0.1f
+            changeScale(lastDraggedGui!!, delta)
+            return true
+        }
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount)
+    }
+
+    private fun changePosition(gui: SkbGui, dx: Int, dy: Int) {
+        if (minecraft == null) return
+        setPosition(gui, getLeftEdge(gui) + dx, gui.getY() + dy)
+        saveGuiCoords(gui)
+    }
+
+    private fun setPosition(gui: SkbGui, leftEdge: Int, y: Int) {
+        val renderedWidth = getSampleWidth(gui)
+        val newLeftEdge = leftEdge.coerceAtLeast(0)
+        val newX = when (gui.getAlignment()) {
+            Alignment.LEFT -> newLeftEdge
+            Alignment.CENTER -> newLeftEdge + renderedWidth / 2
+            Alignment.RIGHT -> newLeftEdge + renderedWidth
+        }
+        gui.setX(newX).setY(y.coerceAtLeast(0))
+    }
+
+    private fun getLeftEdge(gui: SkbGui): Int {
+        val renderedWidth = getSampleWidth(gui)
+        return when (gui.getAlignment()) {
+            Alignment.LEFT -> gui.getX()
+            Alignment.CENTER -> gui.getX() - renderedWidth / 2
+            Alignment.RIGHT -> gui.getX() - renderedWidth
+        }
+    }
+
+    private fun getSampleWidth(gui: SkbGui): Int {
+        val mc = minecraft ?: return 0
+        val maxWidth = gui.getSampleLines().maxOfOrNull { mc.font.width(Component.literal(it)) } ?: 0
+        return (maxWidth * gui.getScale()).toInt()
+    }
+
+    private fun changeScale(gui: SkbGui, delta: Float) {
+        val currentScale = gui.getScale()
+        val newScale = (currentScale + delta).coerceAtLeast(0.2f)
+        gui.setScale(newScale)
+        saveGuiCoords(gui)
+    }
+    
+    private fun changeAlignment(gui: SkbGui) {
+        val mc = minecraft ?: return
+        val textRenderer = mc.font
+        val currentAlignment = gui.getAlignment()
+        val newAlignment = when (currentAlignment) {
+            Alignment.LEFT -> Alignment.CENTER
+            Alignment.CENTER -> Alignment.RIGHT
+            Alignment.RIGHT -> Alignment.LEFT
+        }
+        gui.recalculateXForAlignment(textRenderer, currentAlignment, newAlignment)
+        gui.setAlignment(newAlignment)
+        saveGuiCoords(gui)
+    }
+    
+    private fun saveGuiCoords(gui: SkbGui) {
+        PersistentDataManager.updateOverlayCoordsData(gui.getCoordsDataKey(), gui.getX(), gui.getY(), gui.getScale(), gui.getAlignment())
+    }
+}

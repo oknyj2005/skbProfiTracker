@@ -1,0 +1,19 @@
+{
+	"required": true,
+	"package": "com.skbprofitracker.mixin",
+	"compatibilityLevel": "${java_version}",
+	"client": [
+		"ScreenMixin",
+		"AbstractContainerScreenMixin",
+		"GuiMixin",
+		"MultiPlayerGameModeMixin",
+		"MinecraftMixin",
+		"EntityAccessor"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}

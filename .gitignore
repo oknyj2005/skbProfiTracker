@@ -1,0 +1,44 @@
+# Gradle
+.gradle/
+build/
+versions/*/build/
+versions/*/run/
+
+# Loom / dev runtime
+run/
+logs/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local snapshots and scratch files
+data/*.json
+data/neu_min/
+tmp_*.json
+sh_tree.json
+*.log
+*.tmp
+
+# Third-party reference sources (not redistributable, refetch with tools scripts)
+reference/
+
+# Wiki dumps and one-off migration scripts that point at a local game directory
+*.wiki
+tools/local/
+docs/SLAYER_AUDIT.md
+
+# Python
+__pycache__/
+*.pyc

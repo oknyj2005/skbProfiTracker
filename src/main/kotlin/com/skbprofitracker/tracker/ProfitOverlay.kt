@@ -1,0 +1,300 @@
+package com.skbprofitracker.tracker
+
+import com.skbprofitracker.SkbMod
+import com.skbprofitracker.events.EventBus
+import com.skbprofitracker.events.models.ClientTickEvent
+import com.skbprofitracker.features.commands.SkbProfitCommand
+import com.skbprofitracker.features.overlays.base.TrackerViewMode
+import com.skbprofitracker.items.ItemColors
+import com.skbprofitracker.price.PriceMode
+import com.skbprofitracker.utils.ChatUtils
+import com.skbprofitracker.utils.CommonUtils
+import com.skbprofitracker.utils.data.PersistentDataManager
+import com.skbprofitracker.utils.gui.GuiButton
+import com.skbprofitracker.utils.gui.LineAction
+import com.skbprofitracker.utils.gui.LineInfo
+import com.skbprofitracker.utils.gui.SkbGui
+import com.skbprofitracker.utils.gui.Table
+import java.text.DecimalFormat
+
+/**
+ * The overlay, laid out the way Feesh lays out its profit tracker.
+ *
+ * Everything except the activity name and the absolute numbers is a direct copy of Feesh's
+ * formatting: grey dashes, a rarity coloured name, a gold value column, aqua labels and
+ * bold totals. Colours come from [ItemColors] because our item table is generated from NEU
+ * names and carries no rarity prefix.
+ */
+object ProfitOverlay {
+    private const val MAX_VISIBLE_ITEMS = 15
+
+    /** Rows cheaper than this are not worth a line of their own; they fold into "Other items". */
+    private const val HIDE_CHEAPER_THAN = 1_000_000.0
+    private const val REBUILD_INTERVAL_MS = 500L
+    private const val RESET_CONFIRM_MS = 5_000L
+
+    private const val GRAY = "§7"
+    private const val WHITE = "§f"
+    private const val GOLD = "§6"
+    private const val AQUA = "§b"
+    private const val GREEN = "§a"
+    private const val RED = "§c"
+    private const val BOLD = "§l"
+    private const val RESET = "§r"
+
+    private val gui = SkbGui()
+
+    private var lastBuildMs = 0L
+    private var resetArmedAtMs = 0L
+
+    fun init() {
+        gui.setCoordsDataKey("skbprofit_profit")
+            .setClickable(true)
+            .setSampleLines(
+                listOf(
+                    "${WHITE}Slayer profit tracker ${GRAY}[Session]",
+                    "${GRAY}- ${WHITE}4${GRAY}x ${GOLD}Foul Flesh              ${GOLD}102.0k",
+                    "${AQUA}Net profit: ${GOLD}${BOLD}115.4k ${RESET}${GRAY}(${GOLD}7.55M${GRAY}/h) ${GRAY}[offer]",
+                )
+            )
+            .setCondition { ActivityBucket.current != null }
+
+        EventBus.subscribe(ClientTickEvent::class) { onClientTick() }
+    }
+
+    private fun onClientTick() {
+        val now = System.currentTimeMillis()
+        if (now - lastBuildMs < REBUILD_INTERVAL_MS) return
+        lastBuildMs = now
+
+        val view = BucketLedger.currentView()
+        if (view == null) {
+            gui.clearLines()
+            return
+        }
+
+        gui.setButtons(
+            buildList {
+                add(GuiButton(0, "${GRAY}[Click to show ${WHITE}[${nextViewModeText(view.mode)}]${GRAY}]") {
+                    BucketLedger.viewMode = nextViewMode(view.mode)
+                })
+                add(GuiButton(1, pauseButtonText()) {
+                    ActivityBucket.isPaused = !ActivityBucket.isPaused
+                    ChatUtils.sendLocalChat(
+                        if (ActivityBucket.isPaused) {
+                            "${RED}Paused §7- mining and slayer are no longer tracked"
+                        } else {
+                            "${GREEN}Resumed §7- tracking is running again"
+                        },
+                    )
+                })
+                add(GuiButton(2, resetButtonText()) { onResetClicked(view.activity) })
+                if (view.activity == Activity.SLAYER || view.activity == Activity.MINING) {
+                    add(GuiButton(3, filterButtonText(view.activity, view.filter)) {
+                        SkbProfitCommand.printTypes()
+                    })
+                }
+            }
+        )
+        gui.setLines(buildLines(view))
+    }
+
+    private fun buildLines(view: ProfitView): List<LineInfo> {
+        val lines = mutableListOf<LineInfo>()
+
+        val split = view.activity == Activity.SLAYER || view.activity == Activity.MINING
+        val activityName = if (split && view.filter != BucketLedger.ALL) {
+            view.filter
+        } else {
+            view.activity.name.lowercase().replaceFirstChar { it.uppercase() }
+        }
+        val modeName = view.mode.name.lowercase().replaceFirstChar { it.uppercase() }
+        val filterName = if (split && view.filter == BucketLedger.ALL) {
+            " ${GRAY}[All]"
+        } else {
+            ""
+        }
+        lines.add(LineInfo("${WHITE}$activityName profit tracker ${GRAY}[$modeName]$filterName"))
+
+        // Feesh folds everything below a value threshold into one "Other items" row instead of
+        // printing a dozen rows worth a few coins each, and drops whatever overflows the list.
+        val priced = view.items.filter { it.unitPrice != null }
+        val visible = priced.filter { it.value >= HIDE_CHEAPER_THAN }.take(MAX_VISIBLE_ITEMS)
+        val shownKeys = visible.map { it.key }.toSet()
+        val others = priced.filterNot { it.key in shownKeys }
+
+        if (visible.isNotEmpty()) {
+            val rows = visible.map { item -> row(item) }
+            val layout = Table.layout(SkbMod.mc.font, rows, " ")
+            layout.rows.forEachIndexed { index, cells ->
+                lines.add(
+                    LineInfo.withCells(
+                        cells,
+                        layout.tableWidth,
+                        actions = buildActions(view.activity, visible[index]),
+                    )
+                )
+            }
+        }
+
+        if (others.isNotEmpty()) {
+            val otherValue = others.sumOf { it.value }
+            lines.add(
+                LineInfo(
+                    "${GRAY}- ${WHITE}Other items ${GRAY}(${count(others.sumOf { it.amount })}x, " +
+                        "${WHITE}${others.size} ${GRAY}types)  ${GOLD}${coins(otherValue)}"
+                )
+            )
+        }
+
+        if (view.unpricedTypes > 0) {
+            lines.add(LineInfo("${GRAY}- ${view.unpricedTypes} unpriced types"))
+        }
+
+        lines.add(LineInfo())
+
+        val cost = CostLedger.view(view.activity, view.mode, BucketLedger.priceMode, view.filter)
+        val hasCosts = view.activity != Activity.RIFT && cost.totalValue > 0.0
+
+        // A slayer type without history would otherwise show the cost line of the combined
+        // bucket next to a zero income: the numbers would contradict each other.
+        if (view.items.isEmpty() && view.elapsedSeconds == 0L) {
+            lines.add(LineInfo("${GRAY}No data recorded for this type yet."))
+            return lines
+        }
+
+        // Feesh prints a single bottom line: "Costs" + "Net profit" when something was paid,
+        // and just "Profit" when nothing was. Printing both Profit and Net profit makes the
+        // same number appear twice, so we follow Feesh and keep only one.
+        if (hasCosts) {
+            lines.add(LineInfo("${AQUA}Costs: ${RED}-${coins(cost.totalValue)}"))
+
+            val net = view.totalValue - cost.totalValue
+            val netPerHour = view.perHour - cost.perHour
+            val color = if (net < 0.0) RED else GOLD
+            val perHour = if (view.showPerHour) {
+                "${GRAY}(${color}${coins(netPerHour)}${GRAY}/h) "
+            } else {
+                ""
+            }
+            lines.add(
+                LineInfo(
+                    "${AQUA}Net profit: ${color}${BOLD}${coins(net)} ${RESET}" +
+                        "$perHour${GRAY}${priceModeBadge()}"
+                )
+            )
+        } else {
+            val perHour = if (view.showPerHour) {
+                "${GRAY}(${GOLD}${coins(view.perHour)}${GRAY}/h) "
+            } else {
+                ""
+            }
+            lines.add(
+                LineInfo(
+                    "${AQUA}Profit: ${GOLD}${BOLD}${coins(view.totalValue)} ${RESET}" +
+                        "$perHour${GRAY}${priceModeBadge()}"
+                )
+            )
+        }
+
+        // SkyHanni prints the boss count right above the profit block; keeping it at the
+        // bottom next to the timer makes the "per boss" mental math one glance.
+        if (view.activity == Activity.SLAYER && view.bosses > 0) {
+            val perHour = if (view.elapsedSeconds > 0) view.bosses * 3600.0 / view.elapsedSeconds else 0.0
+            lines.add(
+                LineInfo(
+                    "${AQUA}Bosses killed: ${WHITE}${comma(view.bosses)} " +
+                        "${GRAY}(${WHITE}${DecimalFormat("#,##0.0").format(perHour)}${GRAY}/h)"
+                )
+            )
+        }
+
+        // Three states are worth telling apart: paused by hand, frozen because nothing has
+        // happened for the grace period, and actually counting. Without the middle one the
+        // panel looks alive while the clock stands still.
+        val paused = when {
+            ActivityBucket.isPaused -> " ${GRAY}[Paused]"
+            !ActivityBucket.isCounting() -> " ${GRAY}[Idle]"
+            else -> ""
+        }
+        lines.add(
+            LineInfo(
+                "${AQUA}Elapsed time: ${WHITE}${
+                    CommonUtils.formatTimeElapsed(view.elapsedSeconds.toInt())
+                }$paused"
+            )
+        )
+
+        return lines
+    }
+
+    private fun comma(value: Long): String = DecimalFormat("#,##0").format(value)
+
+    private fun row(item: ItemLine): List<String> = listOf(
+        "${GRAY}- ${WHITE}${count(item.amount)}${GRAY}x ${ItemColors.get(item.key)}${item.name}",
+        "${GOLD}${coins(item.value)}",
+    )
+
+    private fun buildActions(activity: Activity, item: ItemLine): List<LineAction> = listOf(
+        LineAction("${GRAY}[${GREEN}+${GRAY}]") { BucketLedger.adjust(activity, item.key, 1L) },
+        LineAction("${GRAY}[${RED}-${GRAY}]") { BucketLedger.adjust(activity, item.key, -1L) },
+        LineAction("${GRAY}[${RED}x${GRAY}]") { BucketLedger.remove(activity, item.key) },
+    )
+
+    /** The button opens a chat menu (see [SkbProfitCommand.printTypes]); clicking a line picks that type. */
+    private fun filterButtonText(activity: Activity, filter: String): String {
+        val title = if (activity == Activity.SLAYER) "Slayer" else "Mining"
+        val label = if (filter == BucketLedger.ALL) "All" else filter
+        return "${GRAY}[$title: ${WHITE}$label${GRAY} ${GRAY}▾${GRAY}]"
+    }
+
+    private fun pauseButtonText(): String =
+        if (ActivityBucket.isPaused) {
+            "${GRAY}[${GREEN}Click to resume${GRAY}]"
+        } else {
+            "${GRAY}[${GOLD}Click to pause${GRAY}]"
+        }
+
+    private fun resetButtonText(): String {
+        val armed = System.currentTimeMillis() - resetArmedAtMs < RESET_CONFIRM_MS
+        return if (armed) {
+            "${GRAY}[${RED}Click again to reset ${BucketLedger.viewMode.name.lowercase()}${GRAY}]"
+        } else {
+            "${GRAY}[${RED}Click to reset${GRAY}]"
+        }
+    }
+
+    private fun onResetClicked(activity: Activity) {
+        val now = System.currentTimeMillis()
+        if (now - resetArmedAtMs < RESET_CONFIRM_MS) {
+            when (BucketLedger.viewMode) {
+                TrackerViewMode.SESSION -> ActivityBucket.resetSession(activity)
+                TrackerViewMode.TOTAL -> ActivityBucket.resetTotal(activity)
+            }
+            resetArmedAtMs = 0L
+        } else {
+            resetArmedAtMs = now
+        }
+    }
+
+    private fun nextViewMode(mode: TrackerViewMode): TrackerViewMode = when (mode) {
+        TrackerViewMode.SESSION -> TrackerViewMode.TOTAL
+        TrackerViewMode.TOTAL -> TrackerViewMode.SESSION
+    }
+
+    private fun nextViewModeText(mode: TrackerViewMode): String = when (mode) {
+        TrackerViewMode.SESSION -> "Total"
+        TrackerViewMode.TOTAL -> "Session"
+    }
+
+    private fun priceModeBadge(): String = when (BucketLedger.priceMode) {
+        PriceMode.SELL_OFFER -> "[offer]"
+        PriceMode.INSTA_SELL -> "[insta]"
+    }
+
+    /** Feesh writes big counts as `1 909 194`, which makes the row scannable. */
+    private fun count(amount: Long): String =
+        amount.toString().reversed().chunked(3).joinToString(" ").reversed()
+
+    private fun coins(value: Double): String = CommonUtils.toShortNumber(value) ?: "0"
+}

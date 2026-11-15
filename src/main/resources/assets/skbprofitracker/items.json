@@ -1,0 +1,1664 @@
+{
+  "items": [
+    {
+      "name": "Revenant Flesh",
+      "key": "REVENANT_FLESH",
+      "color": "§a",
+      "npc": 1
+    },
+    {
+      "name": "Foul Flesh",
+      "key": "FOUL_FLESH",
+      "color": "§9",
+      "npc": 25000
+    },
+    {
+      "name": "Zombie Slayer Rune I",
+      "key": "ZOMBIE_SLAYER_RUNE;1",
+      "color": "§5"
+    },
+    {
+      "name": "Undead Catalyst",
+      "key": "UNDEAD_CATALYST",
+      "color": "§9",
+      "npc": 2000
+    },
+    {
+      "name": "Enchanted Book (Smite VI)",
+      "key": "ENCHANTMENT_SMITE_6",
+      "color": "§9"
+    },
+    {
+      "name": "Beheaded Horror",
+      "key": "BEHEADED_HORROR",
+      "color": "§5",
+      "npc": 15000
+    },
+    {
+      "name": "Revenant Catalyst",
+      "key": "REVENANT_CATALYST",
+      "color": "§5",
+      "npc": 8000
+    },
+    {
+      "name": "Snake Rune I",
+      "key": "SNAKE_RUNE;1",
+      "color": "§a"
+    },
+    {
+      "name": "Revenant Viscera",
+      "key": "REVENANT_VISCERA",
+      "color": "§9",
+      "npc": 128
+    },
+    {
+      "name": "Scythe Blade",
+      "key": "SCYTHE_BLADE",
+      "color": "§6"
+    },
+    {
+      "name": "Severed Hand",
+      "key": "SEVERED_HAND",
+      "color": "§6",
+      "npc": 1000000
+    },
+    {
+      "name": "Shredded Sinew",
+      "key": "SHARD_OF_THE_SHREDDED",
+      "color": "§6"
+    },
+    {
+      "name": "Warden Heart",
+      "key": "WARDEN_HEART",
+      "color": "§6"
+    },
+    {
+      "name": "Rotten Flesh",
+      "key": "ROTTEN_FLESH",
+      "color": "§f",
+      "npc": 2
+    },
+    {
+      "name": "Gold Ingot",
+      "key": "GOLD_INGOT",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Golden Powder",
+      "key": "GOLDEN_POWDER",
+      "color": "§5"
+    },
+    {
+      "name": "[Lvl 1] Ghoul (EPIC)",
+      "key": "GHOUL;3",
+      "color": "§5"
+    },
+    {
+      "name": "[Lvl 1] Ghoul (LEGENDARY)",
+      "key": "GHOUL;4",
+      "color": "§6"
+    },
+    {
+      "name": "Matcha Dye",
+      "key": "DYE_MATCHA",
+      "color": "§2"
+    },
+    {
+      "name": "Revenant Shard",
+      "key": "SHARD_REVENANT",
+      "color": "§9"
+    },
+    {
+      "name": "Sycophant Shard",
+      "key": "SHARD_SYCOPHANT",
+      "color": "§a"
+    },
+    {
+      "name": "Golden Ghoul Shard",
+      "key": "SHARD_GOLDEN_GHOUL",
+      "color": "§f"
+    },
+    {
+      "name": "Lapis Zombie Shard",
+      "key": "SHARD_LAPIS_ZOMBIE",
+      "color": "§f"
+    },
+    {
+      "name": "Miner Zombie Shard",
+      "key": "SHARD_MINER_ZOMBIE",
+      "color": "§f"
+    },
+    {
+      "name": "Paragon Shard",
+      "key": "SHARD_PARAGON",
+      "color": "§6"
+    },
+    {
+      "name": "Festering Maggot",
+      "key": "FESTERING_MAGGOT",
+      "color": "§5",
+      "npc": 250000
+    },
+    {
+      "name": "Tarantula Web",
+      "key": "TARANTULA_WEB",
+      "color": "§a",
+      "npc": 1
+    },
+    {
+      "name": "Toxic Arrow Poison",
+      "key": "TOXIC_ARROW_POISON",
+      "color": "§a",
+      "npc": 2000
+    },
+    {
+      "name": "Bite Rune I",
+      "key": "BITE_RUNE;1",
+      "color": "§a"
+    },
+    {
+      "name": "Spider Catalyst",
+      "key": "SPIDER_CATALYST",
+      "color": "§9",
+      "npc": 2000
+    },
+    {
+      "name": "Enchanted Book (Bane of Arthropods VI)",
+      "key": "ENCHANTMENT_BANE_OF_ARTHROPODS_6",
+      "color": "§9"
+    },
+    {
+      "name": "Fly Swatter",
+      "key": "FLY_SWATTER",
+      "color": "§5",
+      "npc": 500000
+    },
+    {
+      "name": "Tarantula Talisman",
+      "key": "TARANTULA_TALISMAN",
+      "color": "§5"
+    },
+    {
+      "name": "Digested Mosquito",
+      "key": "DIGESTED_MOSQUITO",
+      "color": "§6"
+    },
+    {
+      "name": "Spider Eye",
+      "key": "SPIDER_EYE",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "String",
+      "key": "STRING",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Bone",
+      "key": "BONE",
+      "color": "§f",
+      "npc": 2
+    },
+    {
+      "name": "[Lvl 1] Tarantula (EPIC)",
+      "key": "TARANTULA;3",
+      "color": "§5"
+    },
+    {
+      "name": "[Lvl 1] Tarantula (LEGENDARY)",
+      "key": "TARANTULA;4",
+      "color": "§6"
+    },
+    {
+      "name": "Travel Scroll to Spider's Den Top of Nest",
+      "key": "SPIDERS_DEN_TOP_TRAVEL_SCROLL",
+      "color": "§5"
+    },
+    {
+      "name": "Arachne's Calling",
+      "key": "ARACHNE_KEEPER_FRAGMENT",
+      "color": "§9",
+      "npc": 400
+    },
+    {
+      "name": "Burning Eye",
+      "key": "BURNING_EYE",
+      "color": "§a",
+      "npc": 1000
+    },
+    {
+      "name": "Darkness Within Rune I",
+      "key": "DARKNESS_WITHIN_RUNE;1",
+      "color": "§8"
+    },
+    {
+      "name": "Tarantula Catalyst",
+      "key": "TARANTULA_CATALYST",
+      "color": "§5",
+      "npc": 10000
+    },
+    {
+      "name": "Vial of Venom",
+      "key": "VIAL_OF_VENOM",
+      "color": "§5",
+      "npc": 250000
+    },
+    {
+      "name": "Primordial Eye",
+      "key": "PRIMORDIAL_EYE",
+      "color": "§6"
+    },
+    {
+      "name": "Ensnared Snail",
+      "key": "ENSNARED_SNAIL",
+      "color": "§6",
+      "npc": 1000000
+    },
+    {
+      "name": "Shriveled Wasp",
+      "key": "SHRIVELED_WASP",
+      "color": "§6",
+      "npc": 100000
+    },
+    {
+      "name": "Tarantula Silk",
+      "key": "TARANTULA_SILK",
+      "color": "§9",
+      "npc": 128
+    },
+    {
+      "name": "Flaming Spider Shard",
+      "key": "SHARD_FLAMING_SPIDER",
+      "color": "§a"
+    },
+    {
+      "name": "Voracious Spider Shard",
+      "key": "SHARD_VORACIOUS_SPIDER",
+      "color": "§f"
+    },
+    {
+      "name": "Arachne Shard",
+      "key": "SHARD_ARACHNE",
+      "color": "§9"
+    },
+    {
+      "name": "Primordial Shard",
+      "key": "SHARD_PRIMORDIAL",
+      "color": "§6"
+    },
+    {
+      "name": "Brick Red Dye",
+      "key": "DYE_BRICK_RED",
+      "color": "§c"
+    },
+    {
+      "name": "Wolf Tooth",
+      "key": "WOLF_TOOTH",
+      "color": "§a",
+      "npc": 1
+    },
+    {
+      "name": "Hamster Wheel",
+      "key": "HAMSTER_WHEEL",
+      "color": "§9",
+      "npc": 20000
+    },
+    {
+      "name": "Spirit Rune I",
+      "key": "SPIRIT_RUNE;1",
+      "color": "§b"
+    },
+    {
+      "name": "Enchanted Book (Critical VI)",
+      "key": "ENCHANTMENT_CRITICAL_6",
+      "color": "§9"
+    },
+    {
+      "name": "Furball",
+      "key": "FURBALL",
+      "color": "§9",
+      "npc": 1
+    },
+    {
+      "name": "Red Claw Egg",
+      "key": "RED_CLAW_EGG",
+      "color": "§5"
+    },
+    {
+      "name": "Couture Rune I",
+      "key": "COUTURE_RUNE;1",
+      "color": "§6"
+    },
+    {
+      "name": "Overflux Capacitor",
+      "key": "OVERFLUX_CAPACITOR",
+      "color": "§5"
+    },
+    {
+      "name": "Grizzly Salmon",
+      "key": "GRIZZLY_BAIT",
+      "color": "§9"
+    },
+    {
+      "name": "Wolf Talisman",
+      "key": "WOLF_TALISMAN",
+      "color": "§a",
+      "npc": 10000
+    },
+    {
+      "name": "Travel Scroll to Howling Cave",
+      "key": "PARK_CAVE_TRAVEL_SCROLL",
+      "color": "§5"
+    },
+    {
+      "name": "[Lvl 1] Hound (EPIC)",
+      "key": "HOUND;3",
+      "color": "§5"
+    },
+    {
+      "name": "[Lvl 1] Hound (LEGENDARY)",
+      "key": "HOUND;4",
+      "color": "§6"
+    },
+    {
+      "name": "Weak Wolf Catalyst",
+      "key": "WEAK_WOLF_CATALYST",
+      "color": "§9"
+    },
+    {
+      "name": "Foraging Exp Boost",
+      "key": "PET_ITEM_FORAGING_SKILL_BOOST_EPIC",
+      "color": "§f"
+    },
+    {
+      "name": "Celeste Dye",
+      "key": "DYE_CELESTE",
+      "color": "§b"
+    },
+    {
+      "name": "Soul of the Alpha Shard",
+      "key": "SHARD_SOUL_OF_THE_ALPHA",
+      "color": "§a"
+    },
+    {
+      "name": "Howling Spirit Shard",
+      "key": "SHARD_HOWLING_SPIRIT",
+      "color": "§f"
+    },
+    {
+      "name": "Null Sphere",
+      "key": "NULL_SPHERE",
+      "color": "§a"
+    },
+    {
+      "name": "Twilight Arrow Poison",
+      "key": "TWILIGHT_ARROW_POISON",
+      "color": "§a",
+      "npc": 650
+    },
+    {
+      "name": "Endersnake Rune I",
+      "key": "ENDERSNAKE_RUNE;1",
+      "color": "§5"
+    },
+    {
+      "name": "Summoning Eye",
+      "key": "SUMMONING_EYE",
+      "color": "§5"
+    },
+    {
+      "name": "Enchanted Book (Mana Steal I)",
+      "key": "ENCHANTMENT_MANA_STEAL_1",
+      "color": "§f"
+    },
+    {
+      "name": "Transmission Tuner",
+      "key": "TRANSMISSION_TUNER",
+      "color": "§5",
+      "npc": 45000
+    },
+    {
+      "name": "Null Atom",
+      "key": "NULL_ATOM",
+      "color": "§9",
+      "npc": 33333
+    },
+    {
+      "name": "Hazmat Enderman",
+      "key": "HAZMAT_ENDERMAN",
+      "color": "§6",
+      "npc": 1
+    },
+    {
+      "name": "Pocket Espresso Machine",
+      "key": "POCKET_ESPRESSO_MACHINE",
+      "color": "§f"
+    },
+    {
+      "name": "Enchanted Book (Smarty Pants I)",
+      "key": "ENCHANTMENT_SMARTY_PANTS_1",
+      "color": "§f"
+    },
+    {
+      "name": "Dragon Rune I",
+      "key": "DRAGON_RUNE;1",
+      "color": "§5"
+    },
+    {
+      "name": "Handy Blood Chalice",
+      "key": "HANDY_BLOOD_CHALICE",
+      "color": "§f"
+    },
+    {
+      "name": "Sinful Dice",
+      "key": "SINFUL_DICE",
+      "color": "§5"
+    },
+    {
+      "name": "Exceedingly Rare Ender Artifact Upgrade",
+      "key": "EXCEEDINGLY_RARE_ENDER_ARTIFACT_UPGRADER",
+      "color": "§6"
+    },
+    {
+      "name": "Void Conqueror Enderman Skin",
+      "key": "PET_SKIN_ENDERMAN_SLAYER",
+      "color": "§5"
+    },
+    {
+      "name": "Etherwarp Merger",
+      "key": "ETHERWARP_MERGER",
+      "color": "§5",
+      "npc": 100000
+    },
+    {
+      "name": "Judgement Core",
+      "key": "JUDGEMENT_CORE",
+      "color": "§6"
+    },
+    {
+      "name": "Enchant Rune I",
+      "key": "ENCHANT_RUNE;1",
+      "color": "§7"
+    },
+    {
+      "name": "End Stone Idol",
+      "key": "ENDSTONE_IDOL",
+      "color": "§6",
+      "npc": 1000000
+    },
+    {
+      "name": "Enchanted Ender Pearl",
+      "key": "ENCHANTED_ENDER_PEARL",
+      "color": "§a",
+      "npc": 140
+    },
+    {
+      "name": "Ender Pearl",
+      "key": "ENDER_PEARL",
+      "color": "§f",
+      "npc": 7
+    },
+    {
+      "name": "Enderman Cortex Rewriter",
+      "key": "ENDERMAN_CORTEX_REWRITER",
+      "color": "§d",
+      "npc": 80000
+    },
+    {
+      "name": "[Lvl 1] Enderman (COMMON)",
+      "key": "ENDERMAN;0",
+      "color": "§f"
+    },
+    {
+      "name": "[Lvl 1] Enderman (UNCOMMON)",
+      "key": "ENDERMAN;1",
+      "color": "§a"
+    },
+    {
+      "name": "[Lvl 1] Enderman (RARE)",
+      "key": "ENDERMAN;2",
+      "color": "§9"
+    },
+    {
+      "name": "[Lvl 1] Enderman (EPIC)",
+      "key": "ENDERMAN;3",
+      "color": "§5"
+    },
+    {
+      "name": "[Lvl 1] Enderman (LEGENDARY)",
+      "key": "ENDERMAN;4",
+      "color": "§6"
+    },
+    {
+      "name": "Byzantium Dye",
+      "key": "DYE_BYZANTIUM",
+      "color": "§5"
+    },
+    {
+      "name": "Zealot Bruiser Shard",
+      "key": "SHARD_BRUISER",
+      "color": "§a"
+    },
+    {
+      "name": "Zealot Shard",
+      "key": "SHARD_ZEALOT",
+      "color": "§f"
+    },
+    {
+      "name": "Derelict Ashe",
+      "key": "DERELICT_ASHE",
+      "color": "§a"
+    },
+    {
+      "name": "Lavatears Rune I",
+      "key": "LAVATEARS_RUNE;1",
+      "color": "§c"
+    },
+    {
+      "name": "Wisp Potion",
+      "key": "WISP_POTION"
+    },
+    {
+      "name": "Bundle of Magma Arrows",
+      "key": "ARROW_BUNDLE_MAGMA",
+      "color": "§5",
+      "npc": 50000
+    },
+    {
+      "name": "Mana Disintegrator",
+      "key": "MANA_DISINTEGRATOR",
+      "color": "§9",
+      "npc": 1000
+    },
+    {
+      "name": "Scorched Books",
+      "key": "SCORCHED_BOOKS",
+      "color": "§d",
+      "npc": 1
+    },
+    {
+      "name": "Kelvin Inverter",
+      "key": "KELVIN_INVERTER",
+      "color": "§9",
+      "npc": 100000
+    },
+    {
+      "name": "Blaze Rod Distillate",
+      "key": "BLAZE_ROD_DISTILLATE",
+      "color": "§9",
+      "npc": 5000
+    },
+    {
+      "name": "Glowstone Distillate",
+      "key": "GLOWSTONE_DUST_DISTILLATE",
+      "color": "§9",
+      "npc": 5000
+    },
+    {
+      "name": "Magma Cream Distillate",
+      "key": "MAGMA_CREAM_DISTILLATE",
+      "color": "§9",
+      "npc": 5000
+    },
+    {
+      "name": "Nether Wart Distillate",
+      "key": "NETHER_STALK_DISTILLATE",
+      "color": "§9",
+      "npc": 5000
+    },
+    {
+      "name": "Gabagool Distillate",
+      "key": "CRUDE_GABAGOOL_DISTILLATE",
+      "color": "§9",
+      "npc": 5000
+    },
+    {
+      "name": "Scorched Power Crystal",
+      "key": "SCORCHED_POWER_CRYSTAL",
+      "color": "§6",
+      "npc": 350000
+    },
+    {
+      "name": "Archfiend Dice",
+      "key": "ARCHFIEND_DICE",
+      "color": "§5"
+    },
+    {
+      "name": "Enchanted Book (Fire Aspect III)",
+      "key": "ENCHANTMENT_FIRE_ASPECT_3",
+      "color": "§f"
+    },
+    {
+      "name": "Fiery Burst Rune I",
+      "key": "FIERY_BURST_RUNE;1",
+      "color": "§c"
+    },
+    {
+      "name": "Flawed Opal Gemstone",
+      "key": "FLAWED_OPAL_GEM",
+      "color": "§a",
+      "npc": 240
+    },
+    {
+      "name": "Enchanted Book (Duplex I)",
+      "key": "ENCHANTMENT_ULTIMATE_REITERATE_1",
+      "color": "§d"
+    },
+    {
+      "name": "High Class Archfiend Dice",
+      "key": "HIGH_CLASS_ARCHFIEND_DICE",
+      "color": "§6"
+    },
+    {
+      "name": "Wilson's Engineering Plans",
+      "key": "WILSON_ENGINEERING_PLANS",
+      "color": "§6"
+    },
+    {
+      "name": "Subzero Inverter",
+      "key": "SUBZERO_INVERTER",
+      "color": "§6"
+    },
+    {
+      "name": "Blaze Ashes",
+      "key": "BLAZE_ASHES",
+      "color": "§a",
+      "npc": 50
+    },
+    {
+      "name": "Blaze Rod",
+      "key": "BLAZE_ROD",
+      "color": "§f",
+      "npc": 9
+    },
+    {
+      "name": "Enchanted Blaze Powder",
+      "key": "ENCHANTED_BLAZE_POWDER",
+      "color": "§a",
+      "npc": 1440
+    },
+    {
+      "name": "Netherrack-Looking Sunshade",
+      "key": "NETHERRACK_LOOKING_SUNSHADE",
+      "color": "§f",
+      "npc": 10000
+    },
+    {
+      "name": "Millennia-Old Blaze Ashes",
+      "key": "MILLENIA_OLD_BLAZE_ASHES",
+      "color": "§9",
+      "npc": 1000
+    },
+    {
+      "name": "Enchanted Book (Smoldering I)",
+      "key": "ENCHANTMENT_SMOLDERING_1",
+      "color": "§f"
+    },
+    {
+      "name": "Sword of Bad Health",
+      "key": "SWORD_OF_BAD_HEALTH",
+      "color": "§a",
+      "npc": 4000
+    },
+    {
+      "name": "Flame Dye",
+      "key": "DYE_FLAME",
+      "color": "§6"
+    },
+    {
+      "name": "Inferno Demonlord Shard",
+      "key": "SHARD_BURNINGSOUL",
+      "color": "§5"
+    },
+    {
+      "name": "Nether Star",
+      "key": "CORRUPTED_NETHER_STAR",
+      "color": "§6",
+      "npc": 10000
+    },
+    {
+      "name": "Cyclamen Dye",
+      "key": "DYE_CYCLAMEN",
+      "color": "§c"
+    },
+    {
+      "name": "Coven Seal",
+      "key": "COVEN_SEAL",
+      "color": "§a"
+    },
+    {
+      "name": "Enchanted Book Bundle",
+      "key": "ENCHANTED_BOOK_BUNDLE_QUANTUM",
+      "color": "§a",
+      "npc": 15000
+    },
+    {
+      "name": "Soultwist Rune I",
+      "key": "SOULTWIST_RUNE;1",
+      "color": "§5"
+    },
+    {
+      "name": "Bubba Blister",
+      "key": "BUBBA_BLISTER",
+      "color": "§6",
+      "npc": 10000
+    },
+    {
+      "name": "Fang-tastic Chocolate Chip",
+      "key": "CHOCOLATE_CHIP",
+      "color": "§6",
+      "npc": 10000
+    },
+    {
+      "name": "Guardian Lucky Block",
+      "key": "GUARDIAN_LUCKY_BLOCK",
+      "color": "§d",
+      "npc": 30000
+    },
+    {
+      "name": "McGrubber's Burger",
+      "key": "MCGRUBBER_BURGER",
+      "color": "§5"
+    },
+    {
+      "name": "Unfanged Vampire Part",
+      "key": "UNFANGED_VAMPIRE_PART",
+      "color": "§6"
+    },
+    {
+      "name": "Hemovibe",
+      "key": "HEMOVIBE",
+      "color": "§a",
+      "npc": 100
+    },
+    {
+      "name": "Vampiric Melon",
+      "key": "VAMPIRIC_MELON",
+      "color": "§a"
+    },
+    {
+      "name": "Sangria Dye",
+      "key": "DYE_SANGRIA",
+      "color": "§4"
+    },
+    {
+      "name": "Rough Amber Gemstone",
+      "key": "ROUGH_AMBER_GEM",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Rough Amethyst Gemstone",
+      "key": "ROUGH_AMETHYST_GEM",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Rough Aquamarine Gemstone",
+      "key": "ROUGH_AQUAMARINE_GEM",
+      "color": "§f",
+      "npc": 4
+    },
+    {
+      "name": "Rough Citrine Gemstone",
+      "key": "ROUGH_CITRINE_GEM",
+      "color": "§f",
+      "npc": 4
+    },
+    {
+      "name": "Rough Jade Gemstone",
+      "key": "ROUGH_JADE_GEM",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Rough Jasper Gemstone",
+      "key": "ROUGH_JASPER_GEM",
+      "color": "§f",
+      "npc": 4
+    },
+    {
+      "name": "Rough Onyx Gemstone",
+      "key": "ROUGH_ONYX_GEM",
+      "color": "§f",
+      "npc": 4
+    },
+    {
+      "name": "Rough Opal Gemstone",
+      "key": "ROUGH_OPAL_GEM",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Rough Peridot Gemstone",
+      "key": "ROUGH_PERIDOT_GEM",
+      "color": "§f",
+      "npc": 4
+    },
+    {
+      "name": "Rough Ruby Gemstone",
+      "key": "ROUGH_RUBY_GEM",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Rough Sapphire Gemstone",
+      "key": "ROUGH_SAPPHIRE_GEM",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Rough Topaz Gemstone",
+      "key": "ROUGH_TOPAZ_GEM",
+      "color": "§f",
+      "npc": 3
+    },
+    {
+      "name": "Flawed Amber Gemstone",
+      "key": "FLAWED_AMBER_GEM",
+      "color": "§a",
+      "npc": 240
+    },
+    {
+      "name": "Flawed Amethyst Gemstone",
+      "key": "FLAWED_AMETHYST_GEM",
+      "color": "§a",
+      "npc": 240
+    },
+    {
+      "name": "Flawed Aquamarine Gemstone",
+      "key": "FLAWED_AQUAMARINE_GEM",
+      "color": "§a",
+      "npc": 320
+    },
+    {
+      "name": "Flawed Citrine Gemstone",
+      "key": "FLAWED_CITRINE_GEM",
+      "color": "§a",
+      "npc": 320
+    },
+    {
+      "name": "Flawed Jade Gemstone",
+      "key": "FLAWED_JADE_GEM",
+      "color": "§a",
+      "npc": 240
+    },
+    {
+      "name": "Flawed Jasper Gemstone",
+      "key": "FLAWED_JASPER_GEM",
+      "color": "§a",
+      "npc": 320
+    },
+    {
+      "name": "Flawed Onyx Gemstone",
+      "key": "FLAWED_ONYX_GEM",
+      "color": "§a",
+      "npc": 320
+    },
+    {
+      "name": "Flawed Peridot Gemstone",
+      "key": "FLAWED_PERIDOT_GEM",
+      "color": "§a",
+      "npc": 320
+    },
+    {
+      "name": "Flawed Ruby Gemstone",
+      "key": "FLAWED_RUBY_GEM",
+      "color": "§a",
+      "npc": 240
+    },
+    {
+      "name": "Flawed Sapphire Gemstone",
+      "key": "FLAWED_SAPPHIRE_GEM",
+      "color": "§a",
+      "npc": 240
+    },
+    {
+      "name": "Flawed Topaz Gemstone",
+      "key": "FLAWED_TOPAZ_GEM",
+      "color": "§a",
+      "npc": 240
+    },
+    {
+      "name": "Fine Amber Gemstone",
+      "key": "FINE_AMBER_GEM",
+      "color": "§9",
+      "npc": 19200
+    },
+    {
+      "name": "Fine Amethyst Gemstone",
+      "key": "FINE_AMETHYST_GEM",
+      "color": "§9",
+      "npc": 19200
+    },
+    {
+      "name": "Fine Aquamarine Gemstone",
+      "key": "FINE_AQUAMARINE_GEM",
+      "color": "§9",
+      "npc": 25600
+    },
+    {
+      "name": "Fine Citrine Gemstone",
+      "key": "FINE_CITRINE_GEM",
+      "color": "§9",
+      "npc": 25600
+    },
+    {
+      "name": "Fine Jade Gemstone",
+      "key": "FINE_JADE_GEM",
+      "color": "§9",
+      "npc": 19200
+    },
+    {
+      "name": "Fine Jasper Gemstone",
+      "key": "FINE_JASPER_GEM",
+      "color": "§9",
+      "npc": 25600
+    },
+    {
+      "name": "Fine Onyx Gemstone",
+      "key": "FINE_ONYX_GEM",
+      "color": "§9",
+      "npc": 25600
+    },
+    {
+      "name": "Fine Opal Gemstone",
+      "key": "FINE_OPAL_GEM",
+      "color": "§9",
+      "npc": 19200
+    },
+    {
+      "name": "Fine Peridot Gemstone",
+      "key": "FINE_PERIDOT_GEM",
+      "color": "§9",
+      "npc": 25600
+    },
+    {
+      "name": "Fine Ruby Gemstone",
+      "key": "FINE_RUBY_GEM",
+      "color": "§9",
+      "npc": 19200
+    },
+    {
+      "name": "Fine Sapphire Gemstone",
+      "key": "FINE_SAPPHIRE_GEM",
+      "color": "§9",
+      "npc": 19200
+    },
+    {
+      "name": "Fine Topaz Gemstone",
+      "key": "FINE_TOPAZ_GEM",
+      "color": "§9",
+      "npc": 19200
+    },
+    {
+      "name": "Flawless Amber Gemstone",
+      "key": "FLAWLESS_AMBER_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Amethyst Gemstone",
+      "key": "FLAWLESS_AMETHYST_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Aquamarine Gemstone",
+      "key": "FLAWLESS_AQUAMARINE_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Citrine Gemstone",
+      "key": "FLAWLESS_CITRINE_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Jade Gemstone",
+      "key": "FLAWLESS_JADE_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Jasper Gemstone",
+      "key": "FLAWLESS_JASPER_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Onyx Gemstone",
+      "key": "FLAWLESS_ONYX_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Opal Gemstone",
+      "key": "FLAWLESS_OPAL_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Peridot Gemstone",
+      "key": "FLAWLESS_PERIDOT_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Ruby Gemstone",
+      "key": "FLAWLESS_RUBY_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Sapphire Gemstone",
+      "key": "FLAWLESS_SAPPHIRE_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Flawless Topaz Gemstone",
+      "key": "FLAWLESS_TOPAZ_GEM",
+      "color": "§5"
+    },
+    {
+      "name": "Mithril",
+      "key": "MITHRIL_ORE",
+      "color": "§f",
+      "npc": 8
+    },
+    {
+      "name": "Enchanted Mithril",
+      "key": "ENCHANTED_MITHRIL",
+      "compactsFrom": "Mithril",
+      "compactRatio": 160,
+      "color": "§9",
+      "npc": 1280
+    },
+    {
+      "name": "Titanium",
+      "key": "TITANIUM_ORE",
+      "color": "§9",
+      "npc": 20
+    },
+    {
+      "name": "Enchanted Titanium",
+      "key": "ENCHANTED_TITANIUM",
+      "compactsFrom": "Titanium",
+      "compactRatio": 160,
+      "color": "§5",
+      "npc": 3200
+    },
+    {
+      "name": "Glacite",
+      "key": "GLACITE",
+      "color": "§f",
+      "npc": 12
+    },
+    {
+      "name": "Enchanted Glacite",
+      "key": "ENCHANTED_GLACITE",
+      "compactsFrom": "Glacite",
+      "compactRatio": 160,
+      "color": "§9",
+      "npc": 1920
+    },
+    {
+      "name": "Umber",
+      "key": "UMBER",
+      "color": "§f",
+      "npc": 10
+    },
+    {
+      "name": "Enchanted Umber",
+      "key": "ENCHANTED_UMBER",
+      "compactsFrom": "Umber",
+      "compactRatio": 160,
+      "color": "§9",
+      "npc": 1600
+    },
+    {
+      "name": "Tungsten",
+      "key": "TUNGSTEN",
+      "color": "§f",
+      "npc": 10
+    },
+    {
+      "name": "Enchanted Tungsten",
+      "key": "ENCHANTED_TUNGSTEN",
+      "compactsFrom": "Tungsten",
+      "compactRatio": 160,
+      "color": "§9",
+      "npc": 1600
+    },
+    {
+      "name": "Hard Stone",
+      "key": "HARD_STONE",
+      "color": "§f",
+      "npc": 1
+    },
+    {
+      "name": "Enchanted Hard Stone",
+      "key": "ENCHANTED_HARD_STONE",
+      "compactsFrom": "Hard Stone",
+      "compactRatio": 576,
+      "color": "§a",
+      "npc": 576
+    },
+    {
+      "name": "Coal",
+      "key": "COAL",
+      "color": "§f",
+      "npc": 1
+    },
+    {
+      "name": "Enchanted Coal",
+      "key": "ENCHANTED_COAL",
+      "compactsFrom": "Coal",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 160
+    },
+    {
+      "name": "Iron Ingot",
+      "key": "IRON_INGOT",
+      "color": "§f",
+      "npc": 2
+    },
+    {
+      "name": "Enchanted Iron Ingot",
+      "key": "ENCHANTED_IRON",
+      "compactsFrom": "Iron Ingot",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 320
+    },
+    {
+      "name": "Enchanted Gold Ingot",
+      "key": "ENCHANTED_GOLD",
+      "compactsFrom": "Gold Ingot",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 480
+    },
+    {
+      "name": "Lapis Lazuli",
+      "key": "INK_SACK:4",
+      "color": "§f",
+      "npc": 1
+    },
+    {
+      "name": "Enchanted Lapis Lazuli",
+      "key": "ENCHANTED_LAPIS_LAZULI",
+      "compactsFrom": "Lapis Lazuli",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 160
+    },
+    {
+      "name": "Emerald",
+      "key": "EMERALD",
+      "color": "§f",
+      "npc": 4
+    },
+    {
+      "name": "Enchanted Emerald",
+      "key": "ENCHANTED_EMERALD",
+      "compactsFrom": "Emerald",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 640
+    },
+    {
+      "name": "Diamond",
+      "key": "DIAMOND",
+      "color": "§f",
+      "npc": 8
+    },
+    {
+      "name": "Enchanted Diamond",
+      "key": "ENCHANTED_DIAMOND",
+      "compactsFrom": "Diamond",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 1280
+    },
+    {
+      "name": "Redstone Dust",
+      "key": "REDSTONE",
+      "color": "§f",
+      "npc": 1
+    },
+    {
+      "name": "Enchanted Redstone Dust",
+      "key": "ENCHANTED_REDSTONE",
+      "compactsFrom": "Redstone Dust",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 160
+    },
+    {
+      "name": "Nether Quartz",
+      "key": "QUARTZ",
+      "color": "§f",
+      "npc": 4
+    },
+    {
+      "name": "Enchanted Nether Quartz",
+      "key": "ENCHANTED_QUARTZ",
+      "compactsFrom": "Nether Quartz",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 640
+    },
+    {
+      "name": "Obsidian",
+      "key": "OBSIDIAN",
+      "color": "§f",
+      "npc": 7
+    },
+    {
+      "name": "Enchanted Obsidian",
+      "key": "ENCHANTED_OBSIDIAN",
+      "compactsFrom": "Obsidian",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 1440
+    },
+    {
+      "name": "Cobblestone",
+      "key": "COBBLESTONE",
+      "color": "§f",
+      "npc": 1
+    },
+    {
+      "name": "Enchanted Cobblestone",
+      "key": "ENCHANTED_COBBLESTONE",
+      "compactsFrom": "Cobblestone",
+      "compactRatio": 160,
+      "color": "§a",
+      "npc": 160
+    },
+    {
+      "name": "Sulphur",
+      "key": "SULPHUR",
+      "color": "§a",
+      "npc": 4
+    },
+    {
+      "name": "Enchanted Sulphur",
+      "key": "ENCHANTED_SULPHUR",
+      "compactsFrom": "Sulphur",
+      "compactRatio": 160,
+      "color": "§9",
+      "npc": 1600
+    },
+    {
+      "name": "Sorrow",
+      "key": "SORROW",
+      "color": "§9",
+      "npc": 50000
+    },
+    {
+      "name": "Volta",
+      "key": "VOLTA",
+      "color": "§9",
+      "npc": 1111
+    },
+    {
+      "name": "Sludge Juice",
+      "key": "SLUDGE_JUICE",
+      "color": "§a",
+      "npc": 1000
+    },
+    {
+      "name": "Yoggie",
+      "key": "YOGGIE",
+      "color": "§a",
+      "npc": 100
+    },
+    {
+      "name": "Goblin Egg",
+      "key": "GOBLIN_EGG",
+      "color": "§9",
+      "npc": 421
+    },
+    {
+      "name": "Green Goblin Egg",
+      "key": "GOBLIN_EGG_GREEN",
+      "color": "§a",
+      "npc": 1000
+    },
+    {
+      "name": "Blue Goblin Egg",
+      "key": "GOBLIN_EGG_BLUE",
+      "color": "§9",
+      "npc": 100000
+    },
+    {
+      "name": "Red Goblin Egg",
+      "key": "GOBLIN_EGG_RED",
+      "color": "§9",
+      "npc": 25000
+    },
+    {
+      "name": "Yellow Goblin Egg",
+      "key": "GOBLIN_EGG_YELLOW",
+      "color": "§9",
+      "npc": 10000
+    },
+    {
+      "name": "Treasurite",
+      "key": "TREASURITE",
+      "color": "§5",
+      "npc": 5000
+    },
+    {
+      "name": "Glacite Jewel",
+      "key": "GLACITE_JEWEL",
+      "color": "§9",
+      "npc": 2000
+    },
+    {
+      "name": "Corleonite",
+      "key": "CORLEONITE",
+      "color": "§5",
+      "npc": 50000
+    },
+    {
+      "name": "Robotron Reflector",
+      "key": "ROBOTRON_REFLECTOR",
+      "color": "§9",
+      "npc": 50000
+    },
+    {
+      "name": "Superlite Motor",
+      "key": "SUPERLITE_MOTOR",
+      "color": "§9",
+      "npc": 50000
+    },
+    {
+      "name": "Control Switch",
+      "key": "CONTROL_SWITCH",
+      "color": "§9",
+      "npc": 50000
+    },
+    {
+      "name": "Electron Transmitter",
+      "key": "ELECTRON_TRANSMITTER",
+      "color": "§9",
+      "npc": 50000
+    },
+    {
+      "name": "FTX 3070",
+      "key": "FTX_3070",
+      "color": "§9",
+      "npc": 50000
+    },
+    {
+      "name": "Synthetic Heart",
+      "key": "SYNTHETIC_HEART",
+      "color": "§9",
+      "npc": 50000
+    },
+    {
+      "name": "Bejeweled Handle",
+      "key": "BEJEWELED_HANDLE",
+      "color": "§9",
+      "npc": 100
+    },
+    {
+      "name": "Frozen Scute",
+      "key": "FROZEN_SCUTE",
+      "color": "§d",
+      "npc": 5000000
+    },
+    {
+      "name": "Mithril Plate",
+      "key": "MITHRIL_PLATE",
+      "color": "§9",
+      "npc": 10108
+    },
+    {
+      "name": "Tungsten Plate",
+      "key": "TUNGSTEN_PLATE",
+      "color": "§9"
+    },
+    {
+      "name": "Umber Plate",
+      "key": "UMBER_PLATE",
+      "color": "§9"
+    },
+    {
+      "name": "Refined Mithril",
+      "key": "REFINED_MITHRIL",
+      "color": "§5",
+      "npc": 204800
+    },
+    {
+      "name": "Refined Titanium",
+      "key": "REFINED_TITANIUM",
+      "color": "§6",
+      "npc": 51200
+    },
+    {
+      "name": "Refined Umber",
+      "key": "REFINED_UMBER",
+      "color": "§5",
+      "npc": 256000
+    },
+    {
+      "name": "Refined Tungsten",
+      "key": "REFINED_TUNGSTEN",
+      "color": "§5",
+      "npc": 256000
+    },
+    {
+      "name": "Glacite Amalgamation",
+      "key": "GLACITE_AMALGAMATION",
+      "color": "§5"
+    },
+    {
+      "name": "Dwarven O's Metallic Minis",
+      "key": "DWARVEN_OS_METALLIC_MINIS",
+      "color": "§6"
+    },
+    {
+      "name": "Suspicious Scrap",
+      "key": "SUSPICIOUS_SCRAP",
+      "color": "§9"
+    },
+    {
+      "name": "Starfall",
+      "key": "STARFALL",
+      "color": "§9",
+      "npc": 15
+    },
+    {
+      "name": "Glossy Gemstone",
+      "key": "GLOSSY_GEMSTONE",
+      "color": "§5",
+      "npc": 200000
+    },
+    {
+      "name": "Gemstone Mixture",
+      "key": "GEMSTONE_MIXTURE",
+      "color": "§9"
+    },
+    {
+      "name": "Jaderald",
+      "key": "JADERALD",
+      "color": "§5",
+      "npc": 1000000
+    },
+    {
+      "name": "Divan's Alloy",
+      "key": "DIVAN_ALLOY",
+      "color": "§6"
+    },
+    {
+      "name": "Divan Fragment",
+      "key": "DIVAN_FRAGMENT",
+      "color": "§5",
+      "npc": 200000
+    },
+    {
+      "name": "Quick Claw",
+      "key": "PET_ITEM_QUICK_CLAW",
+      "color": "§6",
+      "npc": 5000000
+    },
+    {
+      "name": "Pickonimbus 2000",
+      "key": "PICKONIMBUS",
+      "color": "§5",
+      "npc": 12
+    },
+    {
+      "name": "Bob-omb",
+      "key": "BOB_OMB",
+      "color": "§9",
+      "npc": 1000
+    },
+    {
+      "name": "Prehistoric Egg",
+      "key": "PREHISTORIC_EGG",
+      "color": "§f",
+      "npc": 1000
+    },
+    {
+      "name": "Oil Barrel",
+      "key": "OIL_BARREL",
+      "color": "§a",
+      "npc": 1000
+    },
+    {
+      "name": "Claw Fossil",
+      "key": "CLAW_FOSSIL",
+      "color": "§6",
+      "npc": 10000
+    },
+    {
+      "name": "Spine Fossil",
+      "key": "SPINE_FOSSIL",
+      "color": "§6",
+      "npc": 50000
+    },
+    {
+      "name": "Tusk Fossil",
+      "key": "TUSK_FOSSIL",
+      "color": "§6",
+      "npc": 50000
+    },
+    {
+      "name": "Webbed Fossil",
+      "key": "WEBBED_FOSSIL",
+      "color": "§6",
+      "npc": 50000
+    },
+    {
+      "name": "Ugly Fossil",
+      "key": "UGLY_FOSSIL",
+      "color": "§6",
+      "npc": 50000
+    },
+    {
+      "name": "Clubbed Fossil",
+      "key": "CLUBBED_FOSSIL",
+      "color": "§6",
+      "npc": 50000
+    },
+    {
+      "name": "Footprint Fossil",
+      "key": "FOOTPRINT_FOSSIL",
+      "color": "§6",
+      "npc": 50000
+    },
+    {
+      "name": "Umber Key",
+      "key": "UMBER_KEY",
+      "color": "§5"
+    },
+    {
+      "name": "Tungsten Key",
+      "key": "TUNGSTEN_KEY",
+      "color": "§5"
+    },
+    {
+      "name": "Skeleton Key",
+      "key": "SKELETON_KEY",
+      "color": "§6",
+      "npc": 10000
+    },
+    {
+      "name": "Caged Wisp",
+      "key": "CAGED_WISP",
+      "color": "§6",
+      "npc": 5000000
+    },
+    {
+      "name": "Frostbitten Dye",
+      "key": "DYE_FROSTBITTEN",
+      "color": "§3"
+    },
+    {
+      "name": "Shattered Locket",
+      "key": "SHATTERED_PENDANT",
+      "color": "§6",
+      "npc": 5000000
+    },
+    {
+      "name": "Enchanted Book (Ice Cold I)",
+      "key": "ENCHANTMENT_ICE_COLD_1",
+      "color": "§f"
+    },
+    {
+      "name": "Crimson Essence",
+      "key": "ESSENCE_CRIMSON",
+      "color": "§d"
+    },
+    {
+      "name": "Diamond Essence",
+      "key": "ESSENCE_DIAMOND",
+      "color": "§d"
+    },
+    {
+      "name": "Dragon Essence",
+      "key": "ESSENCE_DRAGON",
+      "color": "§d"
+    },
+    {
+      "name": "Forest Essence",
+      "key": "ESSENCE_FOREST",
+      "color": "§a"
+    },
+    {
+      "name": "Fossil Essence",
+      "key": "ESSENCE_FOSSIL",
+      "color": "§d"
+    },
+    {
+      "name": "Gold Essence",
+      "key": "ESSENCE_GOLD",
+      "color": "§d"
+    },
+    {
+      "name": "Ice Essence",
+      "key": "ESSENCE_ICE",
+      "color": "§d"
+    },
+    {
+      "name": "Safari Essence",
+      "key": "ESSENCE_SAFARI",
+      "color": "§d"
+    },
+    {
+      "name": "Spider Essence",
+      "key": "ESSENCE_SPIDER",
+      "color": "§d"
+    },
+    {
+      "name": "Undead Essence",
+      "key": "ESSENCE_UNDEAD",
+      "color": "§d"
+    },
+    {
+      "name": "Wither Essence",
+      "key": "ESSENCE_WITHER",
+      "color": "§d"
+    }
+  ]
+}

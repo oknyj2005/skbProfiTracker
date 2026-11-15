@@ -1,0 +1,19 @@
+skbProfiTracker
+Copyright 2026 the SKB Profit Tracker contributors
+
+This product includes software developed as part of the Feesh project
+(https://github.com/Sleepy-Panda/Feesh), licensed under the Apache License,
+Version 2.0.
+
+Portions of the UI framework, event bus, configuration persistence, and the
+price-fetching layer are derived from Feesh source files. Those files retain
+their original structure and, where applicable, their original copyright.
+
+Third-party resources that are not redistributed in this repository:
+
+  * SkyHanni (https://github.com/hannibal002/SkyHanni) — drop list constants,
+    used as reference data only.
+  * NotEnoughUpdates (https://github.com/NotEnoughUpdates/NotEnoughUpdates) —
+    item display names, used to generate the lookup tables in docs/.
+  * Hypixel SkyBlock Wiki (https://hypixelskyblock.minecraft.wiki) — drop and
+    recipe facts verified by hand.

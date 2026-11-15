@@ -1,0 +1,307 @@
+package com.skbprofitracker.utils
+
+import com.skbprofitracker.SkbMod
+import com.skbprofitracker.events.EventBus
+import com.skbprofitracker.events.models.ClientTickEvent
+import com.skbprofitracker.events.models.WorldChangedEvent
+import com.skbprofitracker.utils.ChatUtils.getUnformattedString
+import net.minecraft.world.scores.DisplaySlot
+
+object WorldUtils {
+    const val CRIMSON_ISLE = "Crimson Isle"
+    const val HUB = "Hub"
+    const val PRIVATE_ISLAND = "Private Island"
+    const val CRYSTAL_HOLLOWS = "Crystal Hollows"
+    const val DWARVEN_MINES = "Dwarven Mines"
+    const val ABANDONED_QUARRY = "Abandoned Quarry"
+    const val BACKWATER_BAYOU = "Backwater Bayou"
+    const val JERRY_WORKSHOP = "Jerry's Workshop"
+    const val SPIDERS_DEN = "Spider's Den"
+    const val PARK = "The Park"
+    const val FARMING_ISLANDS = "The Farming Islands"
+    const val KUUDRA = "Kuudra"
+    const val DUNGEONS = "Catacombs"
+    const val GARDEN = "Garden"
+    const val DUNGEON_HUB = "Dungeon Hub"
+    const val THE_END = "The End"
+    const val GLACITE_MINESHAFTS = "Glacite Mineshafts"
+    const val RIFT = "Rift Dimension"
+    const val MOONGLADE_MARSH = "Moonglade Marsh"
+    const val LOTUS_ATOLL = "Lotus Atoll"
+    const val TORRHUS_CANYON = "Torrhus Canyon"
+    const val SAFARI = "Safari"
+
+    // Zones
+    const val BIRCH_PARK = "Birch Park"
+    const val GLACITE_TUNNELS = "Glacite Tunnels"
+    const val PLHLEGBLAST_POOL = "Plhlegblast Pool"
+    const val MURKWATER_DEPTHS = "Murkwater Depths"
+    const val DRAGON_LAIR = "Dragon's Lair"
+    const val TORRHUS_SPRINGS = "Torrhus Springs"
+
+    val NO_FISHING_WORLDS = listOf(
+        RIFT,
+        GARDEN,
+        KUUDRA,
+        DUNGEONS,
+        DUNGEON_HUB,
+        THE_END,
+        GLACITE_MINESHAFTS,
+        SAFARI
+    )
+
+    val WATER_FISHING_WORLDS = listOf(
+        BACKWATER_BAYOU,
+        SPIDERS_DEN,
+        HUB,
+        CRYSTAL_HOLLOWS,
+        DWARVEN_MINES,
+        JERRY_WORKSHOP,
+        PARK,
+        FARMING_ISLANDS,
+        MOONGLADE_MARSH,
+        LOTUS_ATOLL,
+        TORRHUS_CANYON,
+    )
+
+    val HOTSPOT_WORLDS = listOf(
+        BACKWATER_BAYOU,
+        SPIDERS_DEN,
+        HUB,
+        JERRY_WORKSHOP,
+        LOTUS_ATOLL,
+        PARK,
+        CRIMSON_ISLE,
+        TORRHUS_CANYON,
+    )
+
+    val WEATHER_WORLDS = listOf(
+        BACKWATER_BAYOU,
+        CRIMSON_ISLE,
+        CRYSTAL_HOLLOWS,
+        DWARVEN_MINES,
+        GLACITE_TUNNELS,
+        JERRY_WORKSHOP,
+        LOTUS_ATOLL,
+        MOONGLADE_MARSH,
+        SPIDERS_DEN,
+        THE_END,
+        GARDEN,
+    )
+
+    val WATER_HOTSPOT_WORLDS = listOf(
+        BACKWATER_BAYOU,
+        SPIDERS_DEN,
+        HUB,
+        JERRY_WORKSHOP,
+        LOTUS_ATOLL,
+        PARK,
+        TORRHUS_CANYON,
+    )
+
+    private var cachedIsInSkyblock: Boolean = false
+    private var cachedIsOnAlpha: Boolean = false
+    private var cachedIsOnBingo: Boolean = false
+    private var cachedWorldName: String? = null
+    private var cachedZoneName: String? = null
+
+    private const val TICKS_PER_UPDATE = 20
+    private var tickCounter = 0
+
+    private val zonePrefixes = listOf("⏣", "ф", "", "")
+    private val zonePrefixesRegex = Regex(zonePrefixes.joinToString("|"))
+
+    fun init() {
+        EventBus.subscribe(ClientTickEvent::class, ::onClientTick)
+        EventBus.subscribe(WorldChangedEvent::class, ::onWorldChanged)
+    }
+
+    private fun onClientTick(@Suppress("UNUSED_PARAMETER") event: ClientTickEvent) {
+        tickCounter++
+        if (tickCounter < TICKS_PER_UPDATE) return
+        tickCounter = 0
+
+        updateCache()
+    }
+
+    private fun onWorldChanged(@Suppress("UNUSED_PARAMETER") event: WorldChangedEvent) {
+        tickCounter = TICKS_PER_UPDATE
+        cachedIsInSkyblock = false
+        cachedIsOnAlpha = false
+        cachedIsOnBingo = false
+        cachedWorldName = null
+        cachedZoneName = null
+
+        updateCache()
+    }
+
+    private fun updateCache() {
+        CommonUtils.runWithCatching("Failed to update world utils cache") {
+            cachedIsInSkyblock = readIsInSkyblock()
+
+            cachedIsOnAlpha = if (cachedIsInSkyblock) {
+                readIsOnAlpha()
+            } else false
+
+            cachedIsOnBingo = if (cachedIsInSkyblock) {
+                readIsOnBingo()
+            } else false
+
+            cachedWorldName = if (cachedIsInSkyblock) {
+                readWorldName()
+            } else null
+
+            cachedZoneName = if (cachedIsInSkyblock && !cachedWorldName.isNullOrEmpty()) {
+                readZoneName()
+            } else null        
+        }
+    }
+    
+    private fun readWorldName(): String? {
+        val worldName = TabListAndScoreboardUtils.getLineAfter("Area:")
+        return worldName.ifEmpty { null }
+    }
+
+    private fun readZoneName(): String? {
+        val zoneLine = TabListAndScoreboardUtils.getUnformattedScoreboardLines().find { line -> zonePrefixes.any { line.contains(it) } }
+        if (zoneLine.isNullOrEmpty()) return null
+
+        // ⏣ Abandoned🐍 Quarry -> Abandoned Quarry
+        //  Crimson Isle -> Crimson Isle
+        //  Enigma's Crib -> Enigma's Crib
+        var zoneName = zoneLine
+            .replace(zonePrefixesRegex, "")
+            .replace(Regex("[^\\u0000-\\u007F]"), "")
+            .trim()
+
+        // Some lava in Phlegblast area does not belong to Plhlegblast Pool zone but needs to be counted
+        val worldName = cachedWorldName
+        if (worldName == CRIMSON_ISLE && zoneName == CRIMSON_ISLE) {
+            val player = SkbMod.mc.player ?: return zoneName
+            val x = player.x
+            val y = player.y
+            val z = player.z
+
+            if (isBetweenIncluding(x, -381.0, -370.0) &&
+                isBetweenIncluding(y, 68.0, 72.0) &&
+                isBetweenIncluding(z, -708.0, -697.0)) {
+                zoneName = PLHLEGBLAST_POOL
+            }
+        }
+
+        return zoneName
+    }
+    
+    private fun isBetweenIncluding(value: Double, num1: Double, num2: Double): Boolean {
+        return value >= num1 && value <= num2
+    }
+
+    private fun readIsInSkyblock(): Boolean {
+        //val serverAddress = SkbMod.mc.currentServerEntry?.address ?: return false
+        //if (!serverAddress.contains("hypixel", ignoreCase = true)) return false
+        // ^ Commented out for now, because people with reverse proxy have other server addresses
+
+        val title = getScoreboardTitle() ?: return false
+        return title.contains("skyblock", ignoreCase = true)
+    }
+
+    private fun readIsOnAlpha(): Boolean {
+        val scoreboardLines = TabListAndScoreboardUtils.getUnformattedScoreboardLines()
+        return scoreboardLines.any { line -> line.contains("alpha.hypixel.net", ignoreCase = true) }
+    }
+
+    private fun readIsOnBingo(): Boolean {
+        val title = getScoreboardTitle() ?: return false
+        return title.endsWith("Ⓑ")
+    }
+
+    private fun getScoreboardTitle(): String? {
+        val scoreboard = SkbMod.mc.level?.scoreboard ?: return null
+        val objective = scoreboard.getDisplayObjective(DisplaySlot.SIDEBAR) ?: return null
+        return objective.displayName.getUnformattedString()
+    }
+
+    fun isInSkyblock(): Boolean {
+        return cachedIsInSkyblock
+    }
+
+    fun isOnAlpha(): Boolean {
+        if (!isInSkyblock()) return false
+        return cachedIsOnAlpha
+    }
+
+    fun isOnBingo(): Boolean {
+        if (!isInSkyblock()) return false
+        return cachedIsOnBingo
+    }
+
+    /**
+    * Check whether specified world name supports fishing features.
+    * @returns {Boolean}
+    */
+    fun isInFishingWorld(worldName: String?): Boolean {
+        if (!isInSkyblock()) return false
+    	if (worldName.isNullOrEmpty()) return false
+    	return !NO_FISHING_WORLDS.contains(worldName)
+    }
+
+    /**
+    * Check whether current world name supports fishing features.
+    * @returns {Boolean}
+    */
+    fun isInFishingWorld(): Boolean {
+        if (!isInSkyblock()) return false
+        val worldName = getWorldName()
+        if (worldName.isNullOrEmpty()) return false
+    	return !NO_FISHING_WORLDS.contains(worldName)
+    }
+
+    /**
+    * Check whether current world name supports hotspot fishing features.
+    * @returns {Boolean}
+    */
+    fun isInHotspotFishingWorld(): Boolean {
+        if (!isInSkyblock()) return false
+        val worldName = getWorldName()
+    	if (worldName.isNullOrEmpty()) return false
+        return HOTSPOT_WORLDS.contains(getWorldName())
+    }
+
+    /**
+     * Is in Weather areas.
+     */
+    fun isInWeatherWorld(): Boolean {
+        if (!isInSkyblock()) return false
+        val worldName = getWorldName() ?: return false
+        if (worldName == PARK) return getZoneName() == BIRCH_PARK
+        return WEATHER_WORLDS.contains(worldName)
+    }
+
+    /**
+    * Check whether current world name supports water hotspot fishing features.
+    * @returns {Boolean}
+    */
+    fun isInWaterHotspotFishingWorld(): Boolean {
+        if (!isInSkyblock()) return false
+        val worldName = getWorldName()
+    	if (worldName.isNullOrEmpty()) return false
+        return WATER_HOTSPOT_WORLDS.contains(getWorldName())
+    }
+
+    /**
+     * Get the current Skyblock world name or null if not found / outside of Skyblock.
+     * @returns {String?}
+     */
+    fun getWorldName(): String? {
+        return cachedWorldName
+    }
+
+    /**
+    * Get the current Skyblock zone name or null if not found / outside of Skyblock.
+    * @returns {String?}
+    */
+    fun getZoneName(): String? {
+        if (!isInSkyblock()) return null
+        return cachedZoneName
+    }
+}
