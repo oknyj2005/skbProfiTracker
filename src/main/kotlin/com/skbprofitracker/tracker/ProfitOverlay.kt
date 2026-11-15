@@ -55,9 +55,11 @@ object ProfitOverlay {
             .setSettingsKey { true }
             .setSampleLines(
                 listOf(
-                    "${WHITE}Slayer profit tracker ${GRAY}[Session]",
-                    "${GRAY}- ${WHITE}4${GRAY}x ${GOLD}Foul Flesh              ${GOLD}102.0k",
-                    "${AQUA}Net profit: ${GOLD}${BOLD}115.4k ${RESET}${GRAY}(${GOLD}7.55M${GRAY}/h) ${GRAY}[offer]",
+                    "${WHITE}Mining profit tracker ${GRAY}[Session]",
+                    "${GRAY}- ${WHITE}12${GRAY}x ${AQUA}Flawed Sapphire Gemstone  ${GOLD}3.7k",
+                    "${GRAY}- ${WHITE}4 601${GRAY}x ${WHITE}Rough Sapphire Gemstone  ${GOLD}2.3k",
+                    "${AQUA}Profit: ${GOLD}18.2M ${GRAY}(${GOLD}24.1M${GRAY}/h)",
+                    "${AQUA}Elapsed time: ${WHITE}2m 28s",
                 )
             )
             .setCondition { ActivityBucket.current != null }
@@ -99,8 +101,22 @@ object ProfitOverlay {
                 }
             }
         )
-        gui.setLines(buildLines(view))
+        val lines = buildLines(view)
+        // The move screen renders placeholders instead of the live overlay, so keep them equal to
+        // what is on screen right now; a fixed sample made slayer numbers show up in a mining hole.
+        gui.setSampleLines(buildSample(lines))
+        gui.setLines(lines)
     }
+
+    private fun buildSample(lines: List<LineInfo>): List<String> =
+        lines.asSequence()
+            .mapNotNull { line ->
+                val cells = line.cells
+                val text = if (cells.isNullOrEmpty()) line.text else cells.joinToString("  ") { it.text }
+                text.takeIf { it.isNotBlank() }
+            }
+            .take(8)
+            .toList()
 
     private fun buildLines(view: ProfitView): List<LineInfo> {
         val lines = mutableListOf<LineInfo>()
