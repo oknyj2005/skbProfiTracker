@@ -137,8 +137,19 @@ object ActivityBucket {
             field = value
             if (value) {
                 hasStrongSignal = false
+                recentStrongSignals.clear()
             }
         }
+
+    /**
+     * Timestamps of recent strong signals, used to tell "I am actually mining" from "I hit a
+     * block on the way past". A manual pause survives the latter but not ten blocks in ten
+     * seconds, which is the cheapest unambiguous proof of sustained work.
+     */
+    private val recentStrongSignals = ArrayDeque<Long>()
+
+    private const val AUTO_RESUME_SIGNALS = 10
+    private const val AUTO_RESUME_WINDOW_MS = 10_000L
 
     var current: Activity? = null
         private set
@@ -187,14 +198,24 @@ object ActivityBucket {
     }
 
     fun onStrongSignal() {
-        if (isPaused) {
-            // Hitting a mob inside a slayer area while a quest is running is the clearest
-            // "I actually started slaying" signal. Anything weaker (walking into the area,
-            // the quest line appearing) must not silently undo a manual pause.
-            if (current != Activity.SLAYER || slayerQuest == null) return
-            isPaused = false
-        }
         val now = System.currentTimeMillis()
+
+        // Keep collecting even while paused: the burst check below needs them.
+        recentStrongSignals.addLast(now)
+        while (recentStrongSignals.isNotEmpty() && now - recentStrongSignals.first() > AUTO_RESUME_WINDOW_MS) {
+            recentStrongSignals.removeFirst()
+        }
+
+        if (isPaused) {
+            // Two things un-pause: starting to slay inside a running quest, or a sustained
+            // burst of work. A single block or a mob on the way past must not undo a pause.
+            val slayerStarted = current == Activity.SLAYER && slayerQuest != null
+            val sustained = recentStrongSignals.size >= AUTO_RESUME_SIGNALS
+            if (!slayerStarted && !sustained) return
+
+            isPaused = false
+            if (Debug.enabled) Debug.log("[pause] auto-resumed after ${recentStrongSignals.size} signals")
+        }
         if (Debug.enabled && (lastSignalMs == 0L || now - lastSignalMs > 10_000L)) {
             Debug.log("[signal] strong after ${if (lastSignalMs == 0L) "never" else "${(now - lastSignalMs) / 1000}s"}")
         }
@@ -263,6 +284,7 @@ object ActivityBucket {
         hasStrongSignal = false
         slayerQuest = null
         bossFight = false
+        recentStrongSignals.clear()
     }
 
     private fun refreshRegion() {
