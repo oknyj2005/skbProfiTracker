@@ -5,6 +5,7 @@ import com.skbprofitracker.events.models.ClientTickEvent
 import com.skbprofitracker.events.models.WorldChangedEvent
 import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.price.PriceCache
+import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.TabListAndScoreboardUtils
 import com.skbprofitracker.utils.WorldUtils
 import com.skbprofitracker.utils.data.PersistentDataManager
@@ -194,6 +195,9 @@ object ActivityBucket {
             isPaused = false
         }
         val now = System.currentTimeMillis()
+        if (Debug.enabled && (lastSignalMs == 0L || now - lastSignalMs > 10_000L)) {
+            Debug.log("[signal] strong after ${if (lastSignalMs == 0L) "never" else "${(now - lastSignalMs) / 1000}s"}")
+        }
         lastStrongMs = now
         lastSignalMs = now
         hasStrongSignal = true
