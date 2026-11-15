@@ -50,6 +50,14 @@ object InventoryItemPickupPublisher {
 
     private var tickCounter = 0
     private var previousInventory: MutableMap<String, Int>? = null
+
+    /**
+     * Opening or closing a screen reshuffles stacks between the slots, the cursor and the open
+     * container, and the cursor stack in particular can move twice inside one scan. Re-baseline
+     * on the transition instead of booking whatever the diff happens to look like: picking a
+     * stack up onto the cursor and closing the screen used to count it a second time.
+     */
+    private var lastScreenOpen = false
     private var previousContainer: MutableMap<String, Int>? = null
     private var isInventoryLoaded = false
     private var lastFingerprint: String? = null
@@ -120,6 +128,14 @@ object InventoryItemPickupPublisher {
 
         val previousInv = previousInventory
         if (previousInv == null) {
+            previousInventory = currentInventory
+            previousContainer = currentContainer
+            return
+        }
+
+        val screenOpen = SkbMod.mc.getScreenCompat() != null
+        if (screenOpen != lastScreenOpen) {
+            lastScreenOpen = screenOpen
             previousInventory = currentInventory
             previousContainer = currentContainer
             return
