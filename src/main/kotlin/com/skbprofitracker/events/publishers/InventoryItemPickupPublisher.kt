@@ -12,6 +12,7 @@ import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.tracker.ActivityBucket
 import com.skbprofitracker.tracker.BucketLedger
 import com.skbprofitracker.tracker.CostLedger
+import com.skbprofitracker.tracker.SupercraftGuard
 import com.skbprofitracker.utils.ChatUtils.getFormattedString
 import com.skbprofitracker.utils.ChatUtils.getUnformattedString
 import com.skbprofitracker.utils.CommonUtils
@@ -93,6 +94,7 @@ object InventoryItemPickupPublisher {
 
     private fun onChat(message: String) {
         val now = System.currentTimeMillis()
+        SupercraftGuard.onChat(message)
         when {
             message.startsWith("[Bazaar]") || message.contains("Bazaar!") -> lastBazaarMessageMs = now
             message.startsWith("You bought") || message.startsWith("You sold") -> lastNpcMessageMs = now
@@ -219,6 +221,10 @@ object InventoryItemPickupPublisher {
 
     private fun onItemPickedUp(key: String, amount: Int) {
         if (shouldSkipPickup()) return
+
+        // A supercrafted stack coming back out of the sacks is stock the player already owned.
+        val displayName = ItemTable.getByKey(key)?.name
+        if (displayName != null && SupercraftGuard.guardsInventory(displayName)) return
 
         val activity = ActivityBucket.bucketForPickup() ?: return
         ActivityBucket.onWeakSignal()

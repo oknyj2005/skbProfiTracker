@@ -5,6 +5,7 @@ import com.skbprofitracker.events.models.ChatEvent
 import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.tracker.ActivityBucket
 import com.skbprofitracker.tracker.BucketLedger
+import com.skbprofitracker.tracker.SupercraftGuard
 import com.skbprofitracker.utils.ChatUtils.getUnformattedString
 import com.skbprofitracker.utils.ChatUtils.removeFormatting
 import com.skbprofitracker.utils.CommonUtils
@@ -33,8 +34,6 @@ object SacksItemPickupPublisher {
     private const val STASH_TO_SACKS_MESSAGE =
         "You have successfully transferred your items from this stash to your sacks!"
 
-    private var lastSupercraftedMessage: String? = null
-    private var lastSupercraftedAtMs = 0L
     private var lastStashToSacksAtMs = 0L
 
     data class SackPickup(val itemName: String, val amount: Int, val sackName: String)
@@ -54,10 +53,7 @@ object SacksItemPickupPublisher {
                     if (items.isNotEmpty()) onSackItems(items)
                 }
 
-                SUPERCRAFTED_PATTERN.matches(text) -> {
-                    lastSupercraftedMessage = text
-                    lastSupercraftedAtMs = System.currentTimeMillis()
-                }
+                SUPERCRAFTED_PATTERN.matches(text) -> SupercraftGuard.onChat(text)
 
                 text == STASH_TO_SACKS_MESSAGE -> lastStashToSacksAtMs = System.currentTimeMillis()
             }
@@ -79,21 +75,13 @@ object SacksItemPickupPublisher {
             if (pickup.amount <= 0) continue
 
             val entry = ItemTable.get(ItemUtils.getCleanItemName(pickup.itemName)) ?: continue
-            if (wasSupercrafted(pickup.itemName, now)) continue
+            if (SupercraftGuard.guardsSack(pickup.itemName)) continue
 
             // Go through the ledger so the item lands in the running slice and so corpse or
             // nucleus loot that went straight into a sack is not counted a second time.
             BucketLedger.add(activity, entry.key, pickup.amount.toLong())
             ActivityBucket.onWeakSignal()
         }
-    }
-
-    // Supercrafted items end up in the sack too, and their ingredients were already
-    // credited when they were collected.
-    private fun wasSupercrafted(itemName: String, now: Long): Boolean {
-        val message = lastSupercraftedMessage ?: return false
-        if (now - lastSupercraftedAtMs >= MAX_SACKS_MESSAGE_DELAY_MS) return false
-        return message.contains(itemName, ignoreCase = true)
     }
 
     /**
