@@ -58,6 +58,18 @@ garden are out of scope.
 The overlay is clickable while an inventory or the chat is open: click a row's `[+]` `[-]`
 `[x]` to adjust it by hand, and use the buttons underneath to switch mode, pause or reset.
 
+## Tests
+
+The scanner decision table and the in-flight bookkeeping live in `capture/ScanRules.kt` and
+`capture/CaptureBuffer.kt`, neither of which imports Minecraft, so they can be replayed with fake
+data:
+
+```bash
+bash tools/sim/run.sh
+```
+
+`tools/deploy.sh` runs the same checks before copying a build into a client.
+
 ## Building
 
 Requires **JDK 25** (Minecraft 26.x ships class files at major version 69).

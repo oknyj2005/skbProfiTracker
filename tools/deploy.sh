@@ -26,6 +26,13 @@ if [ -z "$jar" ]; then
 fi
 
 name=$(basename "$jar")
+
+# Refuse to install a build whose decision table fails: a successful compile only proves the
+# Kotlin is valid, not that the scanner still classifies sack moves correctly.
+bash "$REPO/tools/sim/run.sh" >/dev/null || {
+    echo "sim checks failed, keeping the previous jar in place" >&2
+    exit 4
+}
 waited=0
 while client_running; do
     if [ "$waited" -ge "$WAIT_SECONDS" ]; then

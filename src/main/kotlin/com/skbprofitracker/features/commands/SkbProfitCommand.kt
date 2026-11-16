@@ -48,8 +48,9 @@ object SkbProfitCommand {
                 "loot" -> printLoot(args.getOrNull(1))
                 "debug" -> {
                     Debug.enabled = !Debug.enabled
+                    Debug.verbose = Debug.enabled
                     ChatUtils.sendLocalChat(
-                        "§7Click diagnostics ${if (Debug.enabled) "§aon" else "§coff"}§7.",
+                        "§7Diagnostics ${if (Debug.enabled) "§aon" else "§coff"}§7 (verbose ${if (Debug.verbose) "§aon" else "§coff"}§7).",
                         true,
                     )
                     ActivityBucket.debugLines().forEach { ChatUtils.sendLocalChat(it, true) }

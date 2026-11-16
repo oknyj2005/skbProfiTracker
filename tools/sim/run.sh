@@ -20,6 +20,7 @@ mkdir -p "$OUT"
 java -cp "$TOOLCP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
     -no-reflect -no-stdlib -nowarn -classpath "$STDLIB" -d "$OUT" \
     src/main/kotlin/com/skbprofitracker/capture/ScanRules.kt \
+    src/main/kotlin/com/skbprofitracker/capture/CaptureBuffer.kt \
     tools/sim/Sim.kt
 
 java -cp "$OUT;$STDLIB" SimKt

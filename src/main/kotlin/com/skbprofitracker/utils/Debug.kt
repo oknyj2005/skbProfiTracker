@@ -8,6 +8,12 @@ import com.skbprofitracker.SkbMod
 object Debug {
     var enabled: Boolean = false
 
+    /**
+     * Per-scan chatter ([pick], [sacks] credit, [hold]) only makes sense while chasing a bug:
+     * on a normal session it fills latest.log within minutes. `/skbprofit debug` turns both on.
+     */
+    var verbose: Boolean = false
+
     /** Diagnostics go to the log file, not to chat: a loot block can be dozens of lines. */
     fun log(message: String) {
         if (enabled) SkbMod.LOGGER.info("[skbprofit] $message")
@@ -20,6 +26,11 @@ object Debug {
      * to keep on, and they are the only way to tell afterwards which path credited an item.
      */
     fun trace(message: String) {
+        if (verbose) SkbMod.LOGGER.info("[skbprofit] $message")
+    }
+
+    /** Decision-level lines that stay on: gates, withdrawals, unknown loot. */
+    fun decision(message: String) {
         SkbMod.LOGGER.info("[skbprofit] $message")
     }
 }

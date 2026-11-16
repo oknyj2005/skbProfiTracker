@@ -3,6 +3,7 @@ package com.skbprofitracker.events.publishers
 import com.google.gson.JsonParser
 import com.skbprofitracker.SkbMod
 import com.skbprofitracker.capture.ActivityKind
+import com.skbprofitracker.capture.CaptureBuffer
 import com.skbprofitracker.capture.AddVerdict
 import com.skbprofitracker.capture.RemovalVerdict
 import com.skbprofitracker.capture.ScanRules
@@ -54,6 +55,11 @@ object InventoryItemPickupPublisher {
     private const val TICKS_INVENTORY_SCAN = 4
     private const val INVENTORY_STABLE_MS = 3_500L
     private const val REMOVAL_CREDIT_MS = 10_000L
+    private const val PENDING_INCREASE_MS = 1_000L
+
+    // Every uncertain move (held pickups, removal credits, ignored withdrawals) lives here so it
+    // expires in one place and can be replayed with fake time in tools/sim.
+    private val buffer = CaptureBuffer(PENDING_INCREASE_MS, REMOVAL_CREDIT_MS)
 
     private const val BAZAAR_FILTER_MS = 2_000L
     private const val AUCTION_FILTER_MS = 5_000L
@@ -76,7 +82,6 @@ object InventoryItemPickupPublisher {
 
     /** When any menu was last closed; used to drop the slot rewrite that follows it. */
     private var lastScreenClosedMs = 0L
-    private val skippedWithdrawals = mutableMapOf<String, Int>()
 
     /**
      * Items that showed up in the inventory while a menu was open but no container slot lost them
@@ -88,10 +93,6 @@ object InventoryItemPickupPublisher {
      * else, for example). Holding them for [PENDING_INCREASE_MS] does both: a late container
      * decrease explains the increase, otherwise it is booked.
      */
-    private data class PendingIncrease(val amount: Int, val atMs: Long)
-
-    private val pendingIncreases = mutableMapOf<String, PendingIncrease>()
-    private const val PENDING_INCREASE_MS = 1_000L
 
     /**
      * Crafting, smelting and the other "turn A into B" screens do not produce loot: the inputs
@@ -130,7 +131,6 @@ object InventoryItemPickupPublisher {
     private var lastFingerprint: String? = null
     private var fingerprintStableSince: Long? = null
 
-    private val pendingRemovals = mutableMapOf<String, PendingRemoval>()
 
     private var lastBazaarGuiClosedMs = 0L
     private var lastBazaarMessageMs = 0L
@@ -140,7 +140,6 @@ object InventoryItemPickupPublisher {
     private var lastTradeMs = 0L
     private var lastSupercraftMs = 0L
 
-    private data class PendingRemoval(var count: Int, var atMs: Long)
 
     fun init() {
         EventBus.subscribe(ClientTickEvent::class) { onClientTick() }
@@ -316,7 +315,7 @@ object InventoryItemPickupPublisher {
                     screenCloseGraceMs = SCREEN_CLOSE_GRACE_MS,
                     sackCooldownMs = SACK_SCREEN_COOLDOWN_MS,
                 )
-                if (verdict == AddVerdict.WITHDRAWAL) skippedWithdrawals.merge(key, pickupAmount, Int::plus)
+                if (verdict == AddVerdict.WITHDRAWAL) buffer.noteSkipped(key, pickupAmount)
                 if (verdict != AddVerdict.CREDIT) {
                     if (Debug.enabled) Debug.log("[scan] $verdict +$pickupAmount $key title=${screenTitle ?: "-"}")
                     if (verdict == AddVerdict.HOLD) addPendingIncrease(key, pickupAmount, now)
@@ -372,22 +371,18 @@ object InventoryItemPickupPublisher {
     fun noteWithdrawal(key: String, amount: Int) {
         if (key.isBlank() || amount <= 0) return
 
-        val skipped = skippedWithdrawals[key] ?: 0
-        val consumed = minOf(skipped, amount)
-        if (consumed > 0) {
-            if (skipped == consumed) skippedWithdrawals.remove(key) else skippedWithdrawals[key] = skipped - consumed
-            if (Debug.enabled) Debug.log("[withdraw] $key -$consumed was already ignored while the sacks screen was open")
+        val explained = buffer.takeSkipped(key, amount)
+        if (explained > 0 && Debug.enabled) {
+            Debug.log("[withdraw] $key -$explained was already ignored while the sacks screen was open")
         }
 
-        var remaining = amount - consumed
+        var remaining = amount - explained
         if (remaining <= 0) return
 
-        val pending = pendingIncreases[key]
-        if (pending != null) {
-            val left = pending.amount - remaining
-            if (left <= 0) pendingIncreases.remove(key) else pendingIncreases[key] = PendingIncrease(left, pending.atMs)
-            if (Debug.enabled) Debug.log("[withdraw] $key -$remaining cancelled a held pickup")
-            remaining = -left
+        val cancelled = buffer.cancelHold(key, remaining)
+        if (cancelled > 0) {
+            if (Debug.enabled) Debug.log("[withdraw] $key -$cancelled cancelled a held pickup")
+            remaining -= cancelled
         }
         if (remaining > 0 && Debug.enabled) {
             Debug.log("[withdraw] $key -$remaining had no matching pickup, ignored")
@@ -395,96 +390,39 @@ object InventoryItemPickupPublisher {
     }
 
     private fun addPendingIncrease(key: String, amount: Int, now: Long) {
-        val previous = pendingIncreases[key]
-        pendingIncreases[key] = PendingIncrease((previous?.amount ?: 0) + amount, now)
+        buffer.hold(key, amount, now)
         if (Debug.enabled) Debug.log("[hold] $key +$amount, waiting for the container to catch up")
     }
 
     private fun consumePendingIncrease(key: String, amount: Int, now: Long) {
-        val pending = pendingIncreases[key] ?: return
-        val remaining = pending.amount - amount
-        if (remaining <= 0) {
-            pendingIncreases.remove(key)
-            if (Debug.enabled) Debug.log("[hold] $key explained by a late container decrease")
-        } else {
-            pendingIncreases[key] = PendingIncrease(remaining, pending.atMs)
-        }
+        buffer.explain(key, amount)
     }
 
     private fun flushPendingIncreases(now: Long) {
-        if (pendingIncreases.isEmpty()) return
-
-        val due = pendingIncreases.filterValues { now - it.atMs >= PENDING_INCREASE_MS }
-        if (due.isEmpty()) return
-
-        for ((key, pending) in due) {
-            pendingIncreases.remove(key)
-            val amount = applyRemovalCredit(key, pending.amount)
-            if (amount <= 0) continue
-            if (Debug.enabled) Debug.log("[hold] flush $key +$amount after ${PENDING_INCREASE_MS}ms, no container decrease")
-            onItemPickedUp(key, amount)
+        for ((key, amount) in buffer.dueHolds(now)) {
+            val credited = applyRemovalCredit(key, amount)
+            if (credited <= 0) continue
+            if (Debug.enabled) Debug.log("[hold] flush $key +$credited after ${PENDING_INCREASE_MS}ms, no container decrease")
+            onItemPickedUp(key, credited)
         }
-    }
-
-    /**
-     * Consumes pending removals that explain part (or all) of [amount].
-     *
-     * Two cases are covered: the exact same item leaving and coming back, and a compactor
-     * turning [compactsFrom] of the parent into one of this item.
-     */
-    private fun applyRemovalCredit(key: String, amount: Int): Int {
-        val now = System.currentTimeMillis()
-
-        val remaining = amount - consumePendingRemoval(key, amount, now)
-        if (remaining <= 0) return 0
-
-        val entry = ItemTable.getByKey(key) ?: return remaining
-        val parentName = entry.compactsFrom ?: return remaining
-        if (entry.compactRatio <= 0) return remaining
-
-        val parentKey = ItemTable.get(parentName)?.key ?: return remaining
-        val needed = entry.compactRatio.toLong() * remaining
-        if (consumePendingRemovalIfEnough(parentKey, needed, now)) return 0
-
-        return remaining
     }
 
     private fun addPendingRemoval(key: String, amount: Int) {
-        val now = System.currentTimeMillis()
-        val pending = pendingRemovals[key]
-        if (pending == null || now - pending.atMs > REMOVAL_CREDIT_MS) {
-            pendingRemovals[key] = PendingRemoval(amount, now)
-        } else {
-            pending.count += amount
-            pending.atMs = now
-        }
+        buffer.addRemoval(key, amount, System.currentTimeMillis())
     }
 
-    private fun consumePendingRemoval(key: String, upTo: Int, now: Long): Int {
-        val pending = pendingRemovals[key] ?: return 0
-        if (now - pending.atMs > REMOVAL_CREDIT_MS) {
-            pendingRemovals.remove(key)
-            return 0
+    /**
+     * Consumes pending removals that explain part (or all) of [amount]: the same item leaving and
+     * coming back, or a compactor turning 160 ore into one block.
+     */
+    private fun applyRemovalCredit(key: String, amount: Int): Int =
+        buffer.takeCredit(key, amount, System.currentTimeMillis()) { compacted ->
+            val entry = ItemTable.getByKey(compacted) ?: return@takeCredit null
+            if (entry.compactRatio <= 0) return@takeCredit null
+            val parentName = entry.compactsFrom ?: return@takeCredit null
+            val parentKey = ItemTable.get(parentName)?.key ?: return@takeCredit null
+            parentKey to entry.compactRatio
         }
-
-        val consumed = minOf(pending.count, upTo)
-        pending.count -= consumed
-        if (pending.count <= 0) pendingRemovals.remove(key)
-        return consumed
-    }
-
-    private fun consumePendingRemovalIfEnough(key: String, needed: Long, now: Long): Boolean {
-        val pending = pendingRemovals[key] ?: return false
-        if (now - pending.atMs > REMOVAL_CREDIT_MS) {
-            pendingRemovals.remove(key)
-            return false
-        }
-        if (pending.count < needed) return false
-
-        pending.count -= needed.toInt()
-        if (pending.count <= 0) pendingRemovals.remove(key)
-        return true
-    }
 
     private fun onItemPickedUp(key: String, amount: Int) {
         Debug.trace("[pick] +$amount $key (scan)")
@@ -607,7 +545,7 @@ object InventoryItemPickupPublisher {
         isInventoryLoaded = false
         lastFingerprint = null
         fingerprintStableSince = null
-        pendingRemovals.clear()
+        buffer.clear()
     }
 
     /**

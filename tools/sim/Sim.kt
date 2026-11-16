@@ -1,4 +1,5 @@
 import com.skbprofitracker.capture.ActivityKind
+import com.skbprofitracker.capture.CaptureBuffer
 import com.skbprofitracker.capture.AddVerdict
 import com.skbprofitracker.capture.RemovalVerdict
 import com.skbprofitracker.capture.ScanRules
@@ -66,6 +67,46 @@ fun main() {
     check("+63 with 1407 deposited -> 0 fresh, 1344 left", ScanRules.netAgainstDeposit(63, 1407), 0 to 1344)
     check("+1408 with 1344 left -> 64 fresh", ScanRules.netAgainstDeposit(1408, 1344), 64 to 0)
     check("withdraw only, nothing mined -> 0 fresh", ScanRules.netAgainstDeposit(1407, 1407), 0 to 0)
+
+    println("capture buffer")
+    run {
+        val buffer = CaptureBuffer(pendingIncreaseMs = 1_000L, removalCreditMs = 10_000L)
+        buffer.hold("OIL_BARREL", 5, 0L)
+        check("held pickup is not credited before the window", buffer.dueHolds(500L), emptyList<Pair<String, Int>>())
+        check("held pickup flushes after the window", buffer.dueHolds(1_200L), listOf("OIL_BARREL" to 5))
+        check("flushed pickup is gone", buffer.dueHolds(5_000L), emptyList<Pair<String, Int>>())
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.hold("OIL_BARREL", 5, 0L)
+        buffer.explain("OIL_BARREL", 5)
+        check("container decrease explains the held pickup", buffer.dueHolds(9_999L), emptyList<Pair<String, Int>>())
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.addRemoval("OIL_BARREL", 100, 0L)
+        check("removal cancels the next pickup", buffer.takeCredit("OIL_BARREL", 40, 100L), 0)
+        check("leftover removal still covers the rest", buffer.takeCredit("OIL_BARREL", 60, 200L), 0)
+        check("removal is used up", buffer.takeCredit("OIL_BARREL", 1, 300L), 1)
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.addRemoval("OIL_BARREL", 5, 0L)
+        check("expired removal does not cancel loot", buffer.takeCredit("OIL_BARREL", 10, 20_000L), 10)
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.addRemoval("MITHRIL", 160, 0L)
+        val compaction = { key: String -> if (key == "ENCHANTED_MITHRIL") "MITHRIL" to 160 else null }
+        check("compacted block is covered by the raw stack", buffer.takeCredit("ENCHANTED_MITHRIL", 1, 100L, compaction), 0)
+        check("a second block has nothing left to lean on", buffer.takeCredit("ENCHANTED_MITHRIL", 1, 200L, compaction), 1)
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.noteSkipped("OIL_BARREL", 1_407)
+        check("skipped withdrawal nets the next line", buffer.takeSkipped("OIL_BARREL", 1_408), 1_407)
+        check("skipped withdrawal is used up", buffer.takeSkipped("OIL_BARREL", 1_408), 0)
+    }
 
     println()
     println(if (failures == 0) "ALL $checks CHECKS PASSED" else "$failures of $checks CHECKS FAILED")

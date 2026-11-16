@@ -255,7 +255,7 @@ object BucketLedger {
             val inHollows = ActivityBucket.isCrystalHollowsArea()
             val fromChest = ActivityBucket.treasureChestRecently()
             if (!inHollows || !fromChest) {
-                Debug.trace("[gate] skip $key +$amount (hollows=$inHollows chest=$fromChest)")
+                Debug.decision("[gate] skip $key +$amount (hollows=$inHollows chest=$fromChest)")
                 return
             }
         }
