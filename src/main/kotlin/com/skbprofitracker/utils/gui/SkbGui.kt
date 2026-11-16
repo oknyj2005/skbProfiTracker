@@ -318,6 +318,14 @@ class SkbGui {
     }
 
     private fun onMouseClick(event: AfterMouseClickEvent) {
+        try {
+            handleMouseClick(event)
+        } catch (t: Throwable) {
+            Debug.log("[click] failed: ${t.javaClass.simpleName} ${t.message}")
+        }
+    }
+
+    private fun handleMouseClick(event: AfterMouseClickEvent) {
         if (Debug.enabled) {
             ChatUtils.sendLocalChat(
                 "§8[click] screen=${event.screen?.javaClass?.simpleName} mx=${event.mouseX} my=${event.mouseY} " +
@@ -555,7 +563,13 @@ class SkbGui {
         for ((index, line) in allLines.withIndex()) {
             val lineInfo = renderLineInfos.getOrNull(index)
             val actions = if (index == hoveredLineIndex) hoveredActions else null
-            drawOverlayLine(lineRenderContext, lineInfo, line, currentY, actions)
+            // One malformed row must not blank out the rest of the overlay, and a swallowed
+            // failure here used to look like "the panel disappears when I hover".
+            try {
+                drawOverlayLine(lineRenderContext, lineInfo, line, currentY, actions)
+            } catch (t: Throwable) {
+                Debug.log("[draw] line $index failed (hovered=$hoveredLineIndex): ${t.javaClass.simpleName} ${t.message}")
+            }
             currentY += lineHeightPx
         }
 

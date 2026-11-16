@@ -15,9 +15,20 @@ import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.data.PersistentDataManager
 import com.skbprofitracker.utils.RegisterUtils
 import com.skbprofitracker.utils.gui.MoveGuis
+import net.fabricmc.loader.api.FabricLoader
+import java.nio.file.Files
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object SkbProfitCommand {
     private const val COMMAND_NAME = "skbprofit"
+
+    /** How long a reset stays armed after the first call. */
+    private const val RESET_CONFIRM_MS = 15_000L
+
+    private var resetArmedUntil = 0L
+    private var resetArmedScope: String? = null
 
     fun init() {
         RegisterUtils.command(COMMAND_NAME) { args ->
@@ -42,26 +53,54 @@ object SkbProfitCommand {
                         true,
                     )
                     ActivityBucket.debugLines().forEach { ChatUtils.sendLocalChat(it, true) }
+                    ChatUtils.sendLocalChat("§8loaded build: §7${buildStamp()}", true)
+                    ChatUtils.sendLocalChat("§8icon candidates: §7[⛁ Skb] §8| §7[⛃ Skb] §8| §7[✪ Skb] §8| §7[◉ Skb]", true)
                 }
                 else -> ChatUtils.sendLocalChat(statusLine(), true)
             }
         }
     }
 
-    private fun reset(scope: String?) {        val activity = ActivityBucket.current
+    /**
+     * Resetting wipes data that is not recoverable, so the command asks once before doing it:
+     * the first call prints a clickable [Confirm], running it again within the window executes.
+     * Clicking the overlay button already needs two clicks, this is the chat side of the same rule.
+     */
+    private fun reset(scope: String?) {
+        val activity = ActivityBucket.current
         if (activity == null) {
             ChatUtils.sendLocalChat("§cNo activity is running right now.", true)
             return
         }
 
-        if (scope.equals("total", ignoreCase = true)) {
-            ActivityBucket.resetTotal(activity)
-            ChatUtils.sendLocalChat("§aReset the ${activity.bucketKey} total.", true)
+        val total = scope.equals("total", ignoreCase = true)
+        val now = System.currentTimeMillis()
+
+        if (now > resetArmedUntil || resetArmedScope != scope) {
+            resetArmedUntil = now + RESET_CONFIRM_MS
+            resetArmedScope = scope
+            ChatUtils.sendLocalChat(
+                "§eAbout to clear the §f${activity.bucketKey} ${if (total) "total" else "session"}§e. " +
+                    "§7This cannot be undone.",
+                true,
+            )
+            ChatUtils.sendLocalChatWithCommand(
+                "§a[Confirm] §7click here, or run §f/skbprofit reset${if (total) " total" else ""}§7 again within 15s.",
+                "skbprofit reset" + if (total) " total" else "",
+            )
             return
         }
 
-        ActivityBucket.resetSession(activity)
-        ChatUtils.sendLocalChat("§aReset the ${activity.bucketKey} session.", true)
+        resetArmedUntil = 0L
+        resetArmedScope = null
+
+        if (total) {
+            ActivityBucket.resetTotal(activity)
+            ChatUtils.sendLocalChat("§aReset the ${activity.bucketKey} total.", true)
+        } else {
+            ActivityBucket.resetSession(activity)
+            ChatUtils.sendLocalChat("§aReset the ${activity.bucketKey} session.", true)
+        }
     }
 
     /**
@@ -254,6 +293,17 @@ object SkbProfitCommand {
             true,
         )
     }
+
+    /**
+     * The jar's timestamp, so it is obvious whether the running client picked up the latest build.
+     * Replacing the file without restarting leaves Fabric on the old copy.
+     */
+    private fun buildStamp(): String = runCatching {
+        val origin = FabricLoader.getInstance().getModContainer("skbprofitracker").orElse(null)?.origin
+        val path = origin?.paths?.firstOrNull() ?: return@runCatching "unknown"
+        val millis = Files.getLastModifiedTime(path).toMillis()
+        SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date(millis))
+    }.getOrDefault("unknown")
 
     private fun statusLine(): String {
         val where = "§8world=§7${ActivityBucket.world} §8zone=§7${ActivityBucket.zone}"

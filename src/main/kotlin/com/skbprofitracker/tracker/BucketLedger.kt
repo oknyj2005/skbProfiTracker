@@ -3,6 +3,7 @@ package com.skbprofitracker.tracker
 import com.skbprofitracker.features.overlays.base.TrackerViewMode
 import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.price.PriceCache
+import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.price.PriceMode
 import com.skbprofitracker.utils.data.BucketData
 import com.google.gson.Gson
@@ -69,6 +70,14 @@ object BucketLedger {
 
     /** Pseudo type that merges every slayer bucket, including the pre-split merged one. */
     const val ALL = "ALL"
+
+    /**
+     * Items that only drop inside the crystal hollows. Oil barrels are fuel: they also leave the
+     * inventory when a drill is refuelled, and Hypixel reports a sack move the same way as a
+     * chest pickup, so anywhere else the number is guesswork. Inside the hollows every source
+     * (treasure chests, the nucleus bundle) is a real drop.
+     */
+    private val HOLLOWS_ONLY = setOf("OIL_BARREL")
 
     var priceMode: PriceMode = PriceMode.INSTA_SELL
         set(value) {
@@ -234,6 +243,22 @@ object BucketLedger {
 
     fun add(activity: Activity, key: String, amount: Long) {
         if (amount <= 0) return
+
+        // Oil barrels are the one item we never could separate from "I moved a stack out of a
+        // sack" (it is fuel, it leaves the inventory when refuelling, and Hypixel reports both
+        // the same way). Only the crystal nucleus loot block credits them; every other source
+        // is ignored, which is a known and accepted gap for treasure chests in the hollows.
+        // Treasure chests announce themselves in chat and drop their loot immediately after, so
+        // requiring that window keeps the hollows rule strict: refuelling and sack shuffles never
+        // produce it, while every real chest does.
+        if (key in HOLLOWS_ONLY) {
+            val inHollows = ActivityBucket.isCrystalHollowsArea()
+            val fromChest = ActivityBucket.treasureChestRecently()
+            if (!inHollows || !fromChest) {
+                Debug.trace("[gate] skip $key +$amount (hollows=$inHollows chest=$fromChest)")
+                return
+            }
+        }
 
         var remaining = amount
         if (activity == Activity.MINING) {
@@ -441,17 +466,58 @@ object BucketLedger {
 
     /** Manual correction from the overlay's [+]/[-] buttons, applied to the visible mode. */
     fun adjust(activity: Activity, key: String, delta: Long) {
-        val items = currentItems(activity)
+        val items = itemsHolding(activity, key) ?: currentItems(activity)
         val next = (items[key] ?: 0L) + delta
         if (next <= 0L) items.remove(key) else items[key] = next
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
-    /** Drops a whole row (the [x] button). */
-    fun remove(activity: Activity, key: String) {
-        currentItems(activity).remove(key)
+    /** Removes up to [amount] of [key] from the visible range, e.g. a sack withdrawal. */
+    fun subtract(activity: Activity, key: String, amount: Long) {
+        var remaining = amount
+        val buckets = costBuckets(activity, filterFor(activity))
+            .sortedByDescending { itemsOf(it)[key] ?: 0L }
+
+        for (bucket in buckets) {
+            if (remaining <= 0) break
+            val items = itemsOf(bucket)
+            val have = items[key] ?: 0L
+            if (have <= 0L) continue
+
+            val take = minOf(have, remaining)
+            if (have - take <= 0L) items.remove(key) else items[key] = have - take
+            remaining -= take
+        }
+
         PersistentDataManager.saveSkbDataToFileAsync()
     }
+
+    /** Drops a whole row (the [x] button). */
+    fun remove(activity: Activity, key: String) {
+        val holders = editBuckets(activity)
+        for (bucket in holders) itemsOf(bucket).remove(key)
+        PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
+    /**
+     * Buckets the edit buttons act on: the visible slice, or every slice when showing [ALL].
+     *
+     * The old behaviour always wrote into the slice being recorded right now, so removing a row
+     * while looking at another slice (or at ALL) silently did nothing.
+     */
+    private fun editBuckets(activity: Activity): List<BucketData> = costBuckets(activity, filterFor(activity))
+
+    private fun itemsOf(bucket: BucketData): MutableMap<String, Long> = when (viewMode) {
+        TrackerViewMode.SESSION -> bucket.sessionItems
+        TrackerViewMode.TOTAL -> bucket.totalItems
+    }
+
+    /** The visible bucket that holds the most of [key], which is the one a +/- should change. */
+    private fun itemsHolding(activity: Activity, key: String): MutableMap<String, Long>? =
+        editBuckets(activity)
+            .map { itemsOf(it) }
+            .filter { (it[key] ?: 0L) > 0L }
+            .maxByOrNull { it[key] ?: 0L }
 
     /** Clears the visible slice: one sub-type when filtered, everything when on [ALL]. */
     fun reset(activity: Activity, total: Boolean) {

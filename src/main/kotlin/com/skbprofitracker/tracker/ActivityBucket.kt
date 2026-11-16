@@ -1,5 +1,6 @@
 package com.skbprofitracker.tracker
 
+import com.skbprofitracker.SkbMod
 import com.skbprofitracker.events.EventBus
 import com.skbprofitracker.events.models.ClientTickEvent
 import com.skbprofitracker.events.models.WorldChangedEvent
@@ -314,9 +315,57 @@ object ActivityBucket {
     private fun resolveActivity(): Activity? {
         if (!WorldUtils.isInSkyblock()) return null
         if (world in RIFT_WORLDS || zone in RIFT_ZONES) return Activity.RIFT
+        // A cast bobber means the player is fishing, and fishing has its own tracker (Feesh).
+        // Its zones overlap ours (the Stronghold is both an Inferno area and a fishing spot), so
+        // standing there with a rod out would otherwise run two overlays over the same loot and
+        // book every fish as slayer profit.
+        if (isFishing()) return null
         if (isMiningArea(world) || isMiningArea(zone)) return Activity.MINING
         if (slayerQuest != null && zone in slayerQuest!!.zones) return Activity.SLAYER
         return null
+    }
+
+    /** Last time the player uncovered a treasure chest; chest loot lands right after. */
+    private var lastTreasureChestMs = 0L
+    private const val TREASURE_CHEST_WINDOW_MS = 8_000L
+
+    /** Called from the chat hook when the hollows announce a treasure chest. */
+    fun onTreasureChestOpened() {
+        lastTreasureChestMs = System.currentTimeMillis()
+    }
+
+    /** True if a treasure chest was uncovered moments ago (its loot is still arriving). */
+    fun treasureChestRecently(): Boolean =
+        System.currentTimeMillis() - lastTreasureChestMs <= TREASURE_CHEST_WINDOW_MS
+
+    /** True inside the crystal hollows, including the nucleus and its mineshafts. */
+    fun isCrystalHollowsArea(): Boolean {
+        val world = WorldUtils.getWorldName()?.lowercase() ?: ""
+        val zone = WorldUtils.getZoneName()?.lowercase() ?: ""
+        return listOf(world, zone).any { it.contains("crystal hollows") || it.contains("crystal nucleus") }
+    }
+
+    /** True while the local player has a bobber in the water. */
+    /**
+     * Fishing suppresses every bucket because Feesh already tracks it. Holding a rod is not enough:
+     * mining and slayer players keep one in hand to swap pets with a quick cast, so only a bobber
+     * that actually sits in the water for a while counts. Once real fishing is detected the
+     * suppression sticks for a few seconds so the panel does not blink between casts.
+     */
+    private var bobberSinceMs = 0L
+    private var lastFishingMs = 0L
+    private const val FISHING_SETTLE_MS = 2_000L
+    private const val FISHING_STICKY_MS = 8_000L
+
+    private fun isFishing(now: Long = System.currentTimeMillis()): Boolean {
+        val bobber = SkbMod.mc.player?.fishing
+        if (bobber == null) {
+            bobberSinceMs = 0L
+        } else {
+            if (bobberSinceMs == 0L) bobberSinceMs = now
+            if (now - bobberSinceMs >= FISHING_SETTLE_MS) lastFishingMs = now
+        }
+        return now - lastFishingMs <= FISHING_STICKY_MS
     }
 
     private fun updateCurrent(now: Long) {

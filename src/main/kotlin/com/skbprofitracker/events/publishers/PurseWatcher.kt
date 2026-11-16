@@ -50,10 +50,15 @@ object PurseWatcher {
         EventBus.subscribe(ChatEvent::class) { onChat(it) }
     }
 
+    private const val TREASURE_CHEST_MARKER = "You uncovered a treasure chest!"
+
     private fun onChat(event: ChatEvent) {
         val text = event.formattedText.removeFormatting()
         if (text.contains(SLAYER_QUEST_START_MARKER)) {
             questStartedMs = System.currentTimeMillis()
+        }
+        if (text.contains(TREASURE_CHEST_MARKER)) {
+            ActivityBucket.onTreasureChestOpened()
         }
         if (text.contains(SLAYER_QUEST_COMPLETE_MARKER)) {
             val now = System.currentTimeMillis()

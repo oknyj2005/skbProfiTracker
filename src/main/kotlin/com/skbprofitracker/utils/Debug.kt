@@ -12,4 +12,14 @@ object Debug {
     fun log(message: String) {
         if (enabled) SkbMod.LOGGER.info("[skbprofit] $message")
     }
+
+    /**
+     * Writes to the log file even when diagnostics are off.
+     *
+     * Used for the handful of lines that decide where an item came from: they are rare enough
+     * to keep on, and they are the only way to tell afterwards which path credited an item.
+     */
+    fun trace(message: String) {
+        SkbMod.LOGGER.info("[skbprofit] $message")
+    }
 }

@@ -103,12 +103,6 @@ object ProfitOverlay {
                         selectorOpen = !selectorOpen
                     })
                 }
-                add(GuiButton(4, priceButtonText()) {
-                    BucketLedger.priceMode = when (BucketLedger.priceMode) {
-                        PriceMode.SELL_OFFER -> PriceMode.INSTA_SELL
-                        PriceMode.INSTA_SELL -> PriceMode.SELL_OFFER
-                    }
-                })
             }
         )
         val lines = buildLines(view)
@@ -213,7 +207,8 @@ object ProfitOverlay {
             lines.add(
                 LineInfo(
                     "${AQUA}Net profit: ${color}${BOLD}${coins(net)} ${RESET}" +
-                        "$perHour${GRAY}${priceModeBadge()}"
+                        "$perHour${GRAY}${priceModeBadge()}",
+                    onClick = ::togglePriceMode,
                 )
             )
         } else {
@@ -225,7 +220,8 @@ object ProfitOverlay {
             lines.add(
                 LineInfo(
                     "${AQUA}Profit: ${GOLD}${BOLD}${coins(view.totalValue)} ${RESET}" +
-                        "$perHour${GRAY}${priceModeBadge()}"
+                        "$perHour${GRAY}${priceModeBadge()}",
+                    onClick = ::togglePriceMode,
                 )
             )
         }
@@ -278,6 +274,14 @@ object ProfitOverlay {
      * It replaces the old chat menu: opening the inventory once and clicking the row is one
      * step, while the chat menu needed a second round trip through the chat screen.
      */
+    /** Clicking the `[offer]` / `[insta]` badge next to the profit flips the price mode. */
+    private fun togglePriceMode() {
+        BucketLedger.priceMode = when (BucketLedger.priceMode) {
+            PriceMode.SELL_OFFER -> PriceMode.INSTA_SELL
+            PriceMode.INSTA_SELL -> PriceMode.SELL_OFFER
+        }
+    }
+
     private fun appendSelector(lines: MutableList<LineInfo>, view: ProfitView) {
         val options = selectorOptions(view.activity)
         if (options.isEmpty()) return
