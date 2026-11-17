@@ -33,6 +33,8 @@ data class ProfitView(
     val bosses: Long = 0,
     /** Opened corpses in the shown slice, zero outside the corpse slice. */
     val corpses: Long = 0,
+    /** Opened corpses split by type, in the order lapis / umber / tungsten / vanguard. */
+    val corpseTypes: List<Pair<String, Long>> = emptyList(),
     /** Which slayer type is shown, or [BucketLedger.ALL] for the combined number. */
     val filter: String = BucketLedger.ALL,
     /**
@@ -62,6 +64,9 @@ data class ProfitView(
  * player actually gained by levelling it.
  */
 object BucketLedger {
+    /** Display order for the corpse breakdown. */
+    private val CORPSE_TYPE_ORDER = listOf("lapis", "umber", "tungsten", "vanguard")
+
     /**
      * Coins picked up from mobs are stored as an item row so they go through the same
      * session/total bookkeeping as everything else. Their unit price is 1, not a bazaar price.
@@ -190,6 +195,7 @@ object BucketLedger {
         bucket.sessionCoinsSpent = 0.0
         bucket.sessionBosses = 0
         bucket.sessionCorpses = 0
+        bucket.sessionCorpseTypes.clear()
     }
 
     /**
@@ -243,6 +249,15 @@ object BucketLedger {
 
     fun add(activity: Activity, key: String, amount: Long) {
         if (amount <= 0) return
+
+        // Keys, gummi bears and the four mining consumables are payments, never loot. Mining never
+        // yields them, so anything that reaches this path is a sack shuffle or a purchase, and
+        // crediting it would show a cost item as profit (that is exactly what "8x Tungsten Key
+        // 21.5M" was). Corpse loot still credits keys because it writes through addToMiningSlice.
+        if (CostLedger.isCostOnly(key)) {
+            Debug.decision("[gate] skip $key +$amount (cost item, not loot)")
+            return
+        }
 
         // Oil barrels are the one item we never could separate from "I moved a stack out of a
         // sack" (it is fuel, it leaves the inventory when refuelling, and Hypixel reports both
@@ -371,6 +386,14 @@ object BucketLedger {
         val totalValue = items.sumOf { it.value }
         val hours = elapsedSeconds / 3600.0
         val perHour = if (hours > 0.0) totalValue / hours else 0.0
+        val showingSession = viewMode == TrackerViewMode.SESSION
+        val typeTotals = mutableMapOf<String, Long>()
+        for (bucket in costBuckets(activity, filter)) {
+            val source = if (showingSession) bucket.sessionCorpseTypes else bucket.totalCorpseTypes
+            for ((type, count) in source) typeTotals.merge(type, count, Long::plus)
+        }
+        val corpseTypes = CORPSE_TYPE_ORDER.mapNotNull { type -> typeTotals[type]?.let { type to it } }
+
         val corpses = costBuckets(activity, filter).sumOf { bucket ->
             when (viewMode) {
                 TrackerViewMode.SESSION -> bucket.sessionCorpses
@@ -388,6 +411,7 @@ object BucketLedger {
             unpricedTypes = items.count { it.unitPrice == null },
             bosses = bosses,
             corpses = corpses,
+            corpseTypes = corpseTypes,
             filter = filter,
             showPerHour = showPerHour(activity, filter),
         )
@@ -457,18 +481,33 @@ object BucketLedger {
      * breath as the loot arrives, and a scan that lands while the corpse UI is open skips
      * the removal entirely, which is how three opened corpses once produced two key costs.
      */
-    fun addCorpseOpened(slice: String = ActivityBucket.MINING_CORPSE) {
+    fun addCorpseOpened(corpseType: String?, slice: String = ActivityBucket.MINING_CORPSE) {
         val bucket = data().miningTypeBucket(slice)
         bucket.sessionCorpses += 1
         bucket.totalCorpses += 1
+        val type = corpseType?.lowercase()?.takeIf { it.isNotBlank() }
+        if (type != null) {
+            bucket.sessionCorpseTypes.merge(type, 1L, Long::plus)
+            bucket.totalCorpseTypes.merge(type, 1L, Long::plus)
+        }
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
     /** Manual correction from the overlay's [+]/[-] buttons, applied to the visible mode. */
+    /**
+     * Manual correction from the overlay's [+]/[-] buttons.
+     *
+     * Both modes are edited on purpose: the panel only shows one of them, but a correction is a
+     * statement about the item, not about the view. Editing session alone left total advertising
+     * the wrong number with no way to fix it from the UI.
+     */
     fun adjust(activity: Activity, key: String, delta: Long) {
-        val items = itemsHolding(activity, key) ?: currentItems(activity)
-        val next = (items[key] ?: 0L) + delta
-        if (next <= 0L) items.remove(key) else items[key] = next
+        for (bucket in editBuckets(activity)) {
+            for (items in listOf(bucket.sessionItems, bucket.totalItems)) {
+                val next = (items[key] ?: 0L) + delta
+                if (next <= 0L) items.remove(key) else items[key] = next
+            }
+        }
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
@@ -494,8 +533,10 @@ object BucketLedger {
 
     /** Drops a whole row (the [x] button). */
     fun remove(activity: Activity, key: String) {
-        val holders = editBuckets(activity)
-        for (bucket in holders) itemsOf(bucket).remove(key)
+        for (bucket in editBuckets(activity)) {
+            bucket.sessionItems.remove(key)
+            bucket.totalItems.remove(key)
+        }
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 

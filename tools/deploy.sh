@@ -33,6 +33,14 @@ bash "$REPO/tools/sim/run.sh" >/dev/null || {
     echo "sim checks failed, keeping the previous jar in place" >&2
     exit 4
 }
+# A failed compile leaves the previous jar in place, and copying it again silently "succeeds".
+# Refuse when any source file is newer than the jar we are about to install.
+newest_src=$(find "$REPO/src" -type f \( -name '*.kt' -o -name '*.java' \) -newer "$jar" -print -quit)
+if [ -n "$newest_src" ]; then
+    echo "stale build: $newest_src is newer than $(basename "$jar"). Run the build first." >&2
+    exit 5
+fi
+
 waited=0
 while client_running; do
     if [ "$waited" -ge "$WAIT_SECONDS" ]; then

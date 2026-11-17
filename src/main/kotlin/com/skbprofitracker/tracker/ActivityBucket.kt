@@ -9,6 +9,7 @@ import com.skbprofitracker.price.PriceCache
 import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.TabListAndScoreboardUtils
 import com.skbprofitracker.utils.WorldUtils
+import com.skbprofitracker.utils.getScreenCompat
 import com.skbprofitracker.utils.data.PersistentDataManager
 import com.skbprofitracker.utils.data.SkbData
 
@@ -165,6 +166,7 @@ object ActivityBucket {
     private var lastSignalMs = 0L
     private var closedAtMs = 0L
     private var lastCountMs = 0L
+    private var lastStateSignature = ""
     private var hasStrongSignal = false
     private var slayerQuest: SlayerType? = null
 
@@ -198,8 +200,16 @@ object ActivityBucket {
         BucketLedger.addBossKill(lastSlayerTypeName)
     }
 
-    fun onStrongSignal() {
+    fun onStrongSignal(source: String = "unknown") {
         val now = System.currentTimeMillis()
+
+        // A GUI eats the click, so a destroy/attack packet while a screen is open cannot be real
+        // mining. Buying a flask in a shop was enough to start the timer once, which is exactly
+        // the kind of one-off that makes a mining session look inflated.
+        if (SkbMod.mc.getScreenCompat() != null) {
+            if (Debug.enabled) Debug.log("[signal] ignored $source (screen open)")
+            return
+        }
 
         // Keep collecting even while paused: the burst check below needs them.
         recentStrongSignals.addLast(now)
@@ -218,7 +228,7 @@ object ActivityBucket {
             if (Debug.enabled) Debug.log("[pause] auto-resumed after ${recentStrongSignals.size} signals")
         }
         if (Debug.enabled && (lastSignalMs == 0L || now - lastSignalMs > 10_000L)) {
-            Debug.log("[signal] strong after ${if (lastSignalMs == 0L) "never" else "${(now - lastSignalMs) / 1000}s"}")
+            Debug.log("[signal] strong after ${if (lastSignalMs == 0L) "never" else "${(now - lastSignalMs) / 1000}s"} from $source")
         }
         lastStrongMs = now
         lastSignalMs = now
@@ -267,6 +277,12 @@ object ActivityBucket {
         // the line on its own.
         if (bossFight && !isPaused && current == Activity.SLAYER) {
             lastSignalMs = now
+        }
+
+        val signature = "${current?.name}|${isCounting()}|$isPaused"
+        if (signature != lastStateSignature) {
+            lastStateSignature = signature
+            Debug.decision("[state] $signature world=$world zone=$zone elapsed=${current?.let { elapsedSeconds(it) } ?: 0}")
         }
 
         if (now - lastCountMs >= SECOND_MS) {

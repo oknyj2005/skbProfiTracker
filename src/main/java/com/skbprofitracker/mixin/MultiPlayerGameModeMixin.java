@@ -34,23 +34,23 @@ public class MultiPlayerGameModeMixin {
 
     @Inject(method = "destroyBlock", at = @At("HEAD"))
     private void skbprofitracker$onDestroyBlock(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        ActivityBucket.INSTANCE.onStrongSignal();
+        ActivityBucket.INSTANCE.onStrongSignal("destroyBlock");
     }
 
     // Holding the mouse button only produces destroyBlock() once a block actually pops, so the
     // two methods below keep the window open while the player is chewing through a wall.
     @Inject(method = "startDestroyBlock", at = @At("HEAD"))
     private void skbprofitracker$onStartDestroyBlock(BlockPos pos, net.minecraft.core.Direction direction, CallbackInfoReturnable<Boolean> cir) {
-        ActivityBucket.INSTANCE.onStrongSignal();
+        ActivityBucket.INSTANCE.onStrongSignal("startDestroyBlock");
     }
 
     @Inject(method = "continueDestroyBlock", at = @At("HEAD"))
     private void skbprofitracker$onContinueDestroyBlock(BlockPos pos, net.minecraft.core.Direction direction, CallbackInfoReturnable<Boolean> cir) {
-        ActivityBucket.INSTANCE.onStrongSignal();
+        ActivityBucket.INSTANCE.onStrongSignal("continueDestroyBlock");
     }
 
     @Inject(method = "attack", at = @At("HEAD"))
     private void skbprofitracker$onAttack(Player player, Entity target, CallbackInfo ci) {
-        ActivityBucket.INSTANCE.onStrongSignal();
+        ActivityBucket.INSTANCE.onStrongSignal("attack");
     }
 }

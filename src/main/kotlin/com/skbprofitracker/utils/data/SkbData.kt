@@ -54,4 +54,7 @@ data class BucketData(
     /** Opened Frozen Corpses, so a corpse run can be read per key instead of only per coins. */
     var sessionCorpses: Long = 0,
     var totalCorpses: Long = 0,
+    /** Same counters split by corpse type (lapis, umber, tungsten, vanguard). */
+    val sessionCorpseTypes: MutableMap<String, Long> = mutableMapOf(),
+    val totalCorpseTypes: MutableMap<String, Long> = mutableMapOf(),
 )

@@ -76,6 +76,8 @@ object InventoryItemPickupPublisher {
      * on the transition instead of booking whatever the diff happens to look like: picking a
      * stack up onto the cursor and closing the screen used to count it a second time.
      */
+    /** Item names the table did not know about, so a miss is logged once, not 5x a second. */
+    private val unseenNames = mutableSetOf<String>()
     private var lastScreenOpen = false
     private var sackScreenOpen = false
     private var lastSackScreenClosedMs = 0L
@@ -522,9 +524,28 @@ object InventoryItemPickupPublisher {
             if (tier != null) name += " (${tier.uppercase()})"
         }
 
-        val entry = ItemTable.get(name) ?: return null
-        ItemColors.remember(entry.key, ItemUtils.getRarityPrefix(stack))
-        return entry
+        val byName = ItemTable.get(name)
+        if (byName != null) {
+            ItemColors.remember(byName.key, ItemUtils.getRarityPrefix(stack))
+            return byName
+        }
+
+        // Some items display under a name the table does not know (essences are the reason this
+        // exists) while carrying a custom data id that IS the price key. Try that before giving up,
+        // and remember what we saw so a miss is diagnosable instead of silent.
+        val customId = ItemUtils.getCustomData(stack)
+            ?.let { ItemUtils.getCustomDataId(it) }
+            ?.takeIf { it.isNotBlank() }
+        val byId = customId?.let { ItemTable.getByKey(it) }
+        if (byId != null) {
+            ItemColors.remember(byId.key, ItemUtils.getRarityPrefix(stack))
+            return byId
+        }
+
+        if (unseenNames.add(name)) {
+            Debug.decision("[scan] unknown item '$name' id=${customId ?: "-"}")
+        }
+        return null
     }
 
     private fun getPetTier(stack: ItemStack): String? {

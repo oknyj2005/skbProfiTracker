@@ -241,7 +241,13 @@ object ProfitOverlay {
         // A corpse run is read per key: three corpses and three keys is the number the player
         // actually wants to check, so it sits where the slayer boss count sits.
         if (view.activity == Activity.MINING && view.filter == ActivityBucket.MINING_CORPSE && view.corpses > 0) {
-            lines.add(LineInfo("${AQUA}Corpses opened: ${WHITE}${comma(view.corpses)}"))
+            val breakdown = view.corpseTypes
+                .filter { it.second > 0 }
+                .joinToString("${GRAY}, ") { (type, count) ->
+                    "${WHITE}${comma(count)}${GRAY}${type.take(1).uppercase()}"
+                }
+            val suffix = if (breakdown.isEmpty()) "" else " ${GRAY}($breakdown${GRAY})"
+            lines.add(LineInfo("${AQUA}Corpses opened: ${WHITE}${comma(view.corpses)}$suffix"))
         }
 
         // Three states are worth telling apart: paused by hand, frozen because nothing has

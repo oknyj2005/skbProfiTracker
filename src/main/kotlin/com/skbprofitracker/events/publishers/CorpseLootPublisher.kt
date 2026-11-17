@@ -34,7 +34,7 @@ object CorpseLootPublisher {
         onStart = { header ->
             pendingType = CORPSE_TYPE.find(header)?.groupValues?.get(1).orEmpty()
             pendingStartMs = System.currentTimeMillis()
-            BucketLedger.addCorpseOpened()
+            BucketLedger.addCorpseOpened(pendingType)
         },
         onClose = {
             val type = pendingType

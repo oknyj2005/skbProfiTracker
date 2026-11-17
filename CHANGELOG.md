@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.7
+
+### Fixed
+- Cost items (corpse keys, gummi bears, the four mining consumables) are never booked as income
+  any more. Putting a stack of keys into a sack used to be read as "8x Tungsten Key" of profit.
+- The `Sack of Sacks` screen is recognised as a sack, so `Insert inventory` deposits are netted
+  out instead of being credited a second time.
+- Deleting or adjusting a row in one view now applies to session and total together; previously
+  the correction only reached the mode you were looking at.
+- Buying from a Hypixel shop no longer starts the timer: the click that closes the shop was
+  reaching the world as a block break.
+
+### Added
+- Essence gains are read from the action bar (`+100 Ice Essence`) and priced through their bazaar
+  key, covering all eleven essences. They never touch the inventory or a sack, so this is the only
+  readable channel.
+- Inventory items whose display name is unknown now fall back to their `custom_data.id`, and a
+  miss logs `[scan] unknown item '<name>' id=<id>` once instead of disappearing silently.
+- Always-on state transitions (`[state] <bucket>|<counting>|<paused> world=… zone=… elapsed=…`)
+  and a signal source in `[signal]` lines, so a session that keeps counting can be explained.
+- `tools/deploy.sh` refuses to install a jar older than the newest source file.
+
 ## 0.1.6
 
 ### Fixed

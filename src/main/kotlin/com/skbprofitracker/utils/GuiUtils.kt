@@ -123,7 +123,9 @@ object GuiUtils {
 
     fun isInSacksGui(): Boolean {
         val title = getCurrentChestName() ?: return false
-        return (title == "Sacks" || title.endsWith("Sack"))
+        // "Sack of Sacks" is the one the Insert inventory button lives in, and it matches neither
+        // of the old shapes, so deposits made from it were never recorded.
+        return title.lowercase().contains("sack")
     }
 
     fun isInSupercraftGui(): Boolean {

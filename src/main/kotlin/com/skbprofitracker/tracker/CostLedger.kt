@@ -92,6 +92,13 @@ object CostLedger {
     private val COST_KEYS =
         CORPSE_COST_KEYS + NUCLEUS_COST_KEYS + MINING_CONSUMABLES.keys + "REHEATED_GUMMY_POLAR_BEAR"
 
+    /**
+     * Items that only ever leave the inventory as a payment. They are counted as costs, never as
+     * loot: keys come from corpse loot blocks, not from mining, so a generic credit for one means
+     * the player shuffled a stack into a sack and the sack message looked like a drop.
+     */
+    fun isCostOnly(key: String): Boolean = key in COST_KEYS
+
     fun onItemRemoved(key: String, amount: Int) {
         if (amount <= 0 || key !in COST_KEYS) return
         // Corpse keys are charged in [onCorpseOpened] instead: the key vanishes in the same
