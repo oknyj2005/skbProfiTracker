@@ -341,11 +341,18 @@ object ProfitOverlay {
         "${GOLD}${coins(item.value)}",
     )
 
-    private fun buildActions(activity: Activity, item: ItemLine): List<LineAction> = listOf(
-        LineAction("${GRAY}[${GREEN}+${GRAY}]") { BucketLedger.adjust(activity, item.key, 1L) },
-        LineAction("${GRAY}[${RED}-${GRAY}]") { BucketLedger.adjust(activity, item.key, -1L) },
-        LineAction("${GRAY}[${RED}x${GRAY}]") { BucketLedger.remove(activity, item.key, item.amount) },
-    )
+    /**
+     * Editing is slice-local by design: `All` is a sum over slices, so a correction made there has
+     * no bucket to land in. Pick the slice first, and `All` follows automatically.
+     */
+    private fun buildActions(activity: Activity, item: ItemLine): List<LineAction> {
+        if (BucketLedger.filterFor(activity) == BucketLedger.ALL) return emptyList()
+        return listOf(
+            LineAction("${GRAY}[${GREEN}+${GRAY}]") { BucketLedger.adjust(activity, item.key, 1L) },
+            LineAction("${GRAY}[${RED}-${GRAY}]") { BucketLedger.adjust(activity, item.key, -1L) },
+            LineAction("${GRAY}[${RED}x${GRAY}]") { BucketLedger.remove(activity, item.key, item.amount) },
+        )
+    }
 
     /** The button opens a chat menu (see [SkbProfitCommand.printTypes]); clicking a line picks that type. */
     private fun filterButtonText(activity: Activity, filter: String): String {

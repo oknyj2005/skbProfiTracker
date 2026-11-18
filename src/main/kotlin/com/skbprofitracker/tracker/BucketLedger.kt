@@ -502,6 +502,7 @@ object BucketLedger {
      * the wrong number with no way to fix it from the UI.
      */
     fun adjust(activity: Activity, key: String, delta: Long) {
+        if (filterFor(activity) == ALL) return
         // Only the bucket that actually holds the row is touched: applying the delta to every
         // slice made `[+]` add the same unit once per slice when the ALL filter was active.
         val buckets = editBuckets(activity)
@@ -568,6 +569,7 @@ object BucketLedger {
      * amount so the correction still reaches the other view.
      */
     fun remove(activity: Activity, key: String, amount: Long) {
+        if (filterFor(activity) == ALL) return
         val buckets = editBuckets(activity)
         val shown = buckets.sumOf { itemsFor(it, viewMode)[key] ?: 0L }
         val target = if (amount > 0L) minOf(amount, shown) else shown
