@@ -103,6 +103,12 @@ object ProfitOverlay {
                         selectorOpen = !selectorOpen
                     })
                 }
+                if (ActivityBucket.isCrystalHollowsArea()) {
+                    val on = ActivityBucket.nucleusTimingEnabled()
+                    add(GuiButton(4, "${GRAY}[Nucleus time: ${if (on) GREEN + "on" else RED + "off"}${GRAY}]") {
+                        ActivityBucket.setNucleusTiming(!on)
+                    })
+                }
             }
         )
         val lines = buildLines(view)

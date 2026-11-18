@@ -20,6 +20,7 @@ import com.skbprofitracker.tracker.ActivityBucket
 import com.skbprofitracker.tracker.BucketLedger
 import com.skbprofitracker.tracker.CostLedger
 import com.skbprofitracker.tracker.PurchaseGuard
+import com.skbprofitracker.tracker.SackShadow
 import com.skbprofitracker.tracker.SupercraftGuard
 import com.skbprofitracker.utils.ChatUtils.getFormattedString
 import com.skbprofitracker.utils.Debug
@@ -78,6 +79,10 @@ object InventoryItemPickupPublisher {
      */
     /** Item names the table did not know about, so a miss is logged once, not 5x a second. */
     private val unseenNames = mutableSetOf<String>()
+
+    /** Gear churn can produce hundreds of one-off names; a sample is enough to notice gaps. */
+    private var unseenLogged = 0
+    private const val UNSEEN_LOG_LIMIT = 40
     private var lastScreenOpen = false
     private var sackScreenOpen = false
     private var lastSackScreenClosedMs = 0L
@@ -370,8 +375,17 @@ object InventoryItemPickupPublisher {
      * already credited when it was first mined, so nothing may be added or removed here: we only
      * drop the in-flight pickup and the counts that the sacks screen already ignored.
      */
+    /** How much of [amount] of [key] was taken out of a sack earlier and is only coming back. */
+    fun takeReturn(key: String, amount: Int): Int =
+        buffer.takeReturn(key, amount, System.currentTimeMillis())
+
     fun noteWithdrawal(key: String, amount: Int) {
         if (key.isBlank() || amount <= 0) return
+
+        val now = System.currentTimeMillis()
+        // Whatever left the sack may be put back later; remember it so the matching `[Sacks] +N`
+        // line nets to zero instead of counting as freshly mined loot.
+        buffer.noteReturn(key, amount, now)
 
         val explained = buffer.takeSkipped(key, amount)
         if (explained > 0 && Debug.enabled) {
@@ -435,6 +449,12 @@ object InventoryItemPickupPublisher {
         if (displayName != null && SupercraftGuard.guardsInventory(displayName)) return
 
         if (PurchaseGuard.shouldSkip(key)) return
+
+        // The sack line already credited this key a moment ago.
+        if (SackShadow.isRecent(key)) {
+            Debug.decision("[scan] skip $key +$amount (already credited by the sack line)")
+            return
+        }
 
         val activity = ActivityBucket.bucketForPickup() ?: return
         ActivityBucket.onWeakSignal()
@@ -542,7 +562,10 @@ object InventoryItemPickupPublisher {
             return byId
         }
 
-        if (unseenNames.add(name)) {
+        if (unseenNames.add(name) && unseenLogged < UNSEEN_LOG_LIMIT &&
+            GuiUtils.getCurrentChestName() == null
+        ) {
+            unseenLogged++
             Debug.decision("[scan] unknown item '$name' id=${customId ?: "-"}")
         }
         return null

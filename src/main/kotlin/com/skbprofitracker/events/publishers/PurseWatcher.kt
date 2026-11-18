@@ -38,6 +38,7 @@ object PurseWatcher {
      * (a bazaar buy, an auction bid) and must not be booked as a slayer cost.
      */
     private const val MIN_SPAWN_COST = 1_000L
+    private const val MAX_SINGLE_GAIN = 1_000_000L
     private const val MAX_SPAWN_COST = 200_000L
 
     private var lastPurse: Long? = null
@@ -121,6 +122,16 @@ object PurseWatcher {
         val activity = ActivityBucket.current ?: return
         if (ActivityBucket.isPaused) return
         if (SkbMod.mc.getScreenCompat() != null) return
+        // A single mob kill never pays millions, and coins only drop right after a swing.
+        // Without both checks a bazaar/auction payout booked 73M of "mining profit".
+        if (gained > MAX_SINGLE_GAIN) {
+            Debug.decision("[purse] ignored +$gained (not a mob kill)")
+            return
+        }
+        if (!ActivityBucket.attackedRecently()) {
+            Debug.decision("[purse] ignored +$gained (no recent attack)")
+            return
+        }
 
         BucketLedger.add(activity, BucketLedger.COINS_KEY, gained)
         if (Debug.enabled && gained >= 10_000) {

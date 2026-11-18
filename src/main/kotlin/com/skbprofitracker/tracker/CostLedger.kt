@@ -89,6 +89,11 @@ object CostLedger {
         "MINING_PUMPKIN" to "Powder Pie",
     )
 
+    /** Any goblin egg variant can be handed to King Yolkar; all of them are nucleus materials. */
+    private val NUCLEUS_MATERIAL_KEYS = NUCLEUS_COST_KEYS + setOf(
+        "GOBLIN_EGG_GREEN", "GOBLIN_EGG_BLUE", "GOBLIN_EGG_RED", "GOBLIN_EGG_YELLOW",
+    )
+
     private val COST_KEYS =
         CORPSE_COST_KEYS + NUCLEUS_COST_KEYS + MINING_CONSUMABLES.keys + "REHEATED_GUMMY_POLAR_BEAR"
 
@@ -99,8 +104,42 @@ object CostLedger {
      */
     fun isCostOnly(key: String): Boolean = key in COST_KEYS
 
+    /**
+     * Nucleus materials are handed to the altar well before the bundle opens, and the player may
+     * also spend them on other things. Nothing is booked when they leave the inventory: the
+     * amounts are parked here and charged as one line when the bundle is actually claimed.
+     */
+    private data class ParkedMaterial(val amount: Long, val atMs: Long)
+
+    private val pendingNucleus = mutableMapOf<String, ParkedMaterial>()
+    private const val NUCLEUS_PARK_MS = 10 * 60_000L
+
+    fun pendingNucleusCosts(): Map<String, Long> = pendingNucleus.mapValues { it.value.amount }
+
+    fun onNucleusOpened() {
+        if (pendingNucleus.isEmpty()) {
+            if (Debug.enabled) Debug.log("[cost] nucleus bundle opened with no pending materials")
+            return
+        }
+        val activity = ActivityBucket.bucketForPickup() ?: return
+        val bucket = BucketLedger.sliceStorage(activity, ActivityBucket.MINING_NUCLEUS)
+        val now = System.currentTimeMillis()
+        for ((key, parked) in pendingNucleus) {
+            if (now - parked.atMs > NUCLEUS_PARK_MS) {
+                if (Debug.enabled) Debug.log("[cost] nucleus dropped stale $key x${parked.amount}")
+                continue
+            }
+            bucket.sessionCosts.merge(key, parked.amount, Long::plus)
+            bucket.totalCosts.merge(key, parked.amount, Long::plus)
+            if (Debug.enabled) Debug.log("[cost] nucleus charged $key x${parked.amount}")
+        }
+        pendingNucleus.clear()
+        PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
     fun onItemRemoved(key: String, amount: Int) {
-        if (amount <= 0 || key !in COST_KEYS) return
+        if (amount <= 0) return
+        if (key !in COST_KEYS && key !in NUCLEUS_MATERIAL_KEYS) return
         // Corpse keys are charged in [onCorpseOpened] instead: the key vanishes in the same
         // breath as the loot arrives and the corpse UI can swallow the inventory diff, which
         // is how three opened corpses once produced only two key costs.
@@ -123,12 +162,19 @@ object CostLedger {
         }
         lastCostAt[key] = now
 
-        val activity = ActivityBucket.bucketForPickup() ?: return
-        // Nucleus materials belong to the nucleus slice, not to the plain mining one.
-        val bucket = when {
-            key in NUCLEUS_COST_KEYS -> BucketLedger.sliceStorage(activity, ActivityBucket.MINING_NUCLEUS)
-            else -> BucketLedger.storage(activity)
+        // Nucleus materials are not charged when they disappear: they are charged in one go
+        // when the loot bundle opens, see [onNucleusOpened].
+        if (key in NUCLEUS_MATERIAL_KEYS) {
+            val now = System.currentTimeMillis()
+            val previous = pendingNucleus[key]
+            val carried = if (previous != null && now - previous.atMs <= NUCLEUS_PARK_MS) previous.amount else 0L
+            pendingNucleus[key] = ParkedMaterial(carried + amount, now)
+            if (Debug.enabled) Debug.log("[cost] parked $key x$amount for nucleus")
+            return
         }
+
+        val activity = ActivityBucket.bucketForPickup() ?: return
+        val bucket = BucketLedger.storage(activity)
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
         PersistentDataManager.saveSkbDataToFileAsync()

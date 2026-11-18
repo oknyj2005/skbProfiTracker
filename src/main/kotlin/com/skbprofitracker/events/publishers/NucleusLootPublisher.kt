@@ -3,6 +3,7 @@ package com.skbprofitracker.events.publishers
 import com.skbprofitracker.events.EventBus
 import com.skbprofitracker.events.models.ChatEvent
 import com.skbprofitracker.tracker.ActivityBucket
+import com.skbprofitracker.tracker.CostLedger
 
 /**
  * `  CRYSTAL NUCLEUS LOOT BUNDLE` followed by indented reward lines and a `▬▬▬` footer.
@@ -15,6 +16,7 @@ object NucleusLootPublisher {
         slice = ActivityBucket.MINING_NUCLEUS,
         startPattern = Regex("\\s+CRYSTAL NUCLEUS LOOT BUNDLE.*"),
         skipName = { it.contains(" Powder") },
+        onStart = { CostLedger.onNucleusOpened() },
     )
 
     fun init() {

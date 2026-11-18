@@ -12,6 +12,12 @@ data class SkbData(
     var viewMode: String = "SESSION",
     var slayerFilter: String = "ALL",
     var miningFilter: String = "ALL",
+    /**
+     * Whether time spent inside Crystal Hollows counts towards the mining slice. It is off by
+     * default: hunting for a crystal is mostly running around, and counting it drags the mining
+     * coins/hour down. Toggle with `/skbprofit nucleustime`.
+     */
+    var nucleusTiming: Boolean = false,
     val mining: BucketData = BucketData(),
     val slayer: BucketData = BucketData(),
     val rift: BucketData = BucketData(),

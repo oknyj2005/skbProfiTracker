@@ -14,12 +14,17 @@ package com.skbprofitracker.capture
 class CaptureBuffer(
     private val pendingIncreaseMs: Long = 1_000L,
     private val removalCreditMs: Long = 10_000L,
+    private val returnTtlMs: Long = 600_000L,
 ) {
     private class Bucket(var amount: Int, var atMs: Long)
 
     private val holds = HashMap<String, Bucket>()
     private val removals = HashMap<String, Bucket>()
     private val skipped = HashMap<String, Int>()
+
+    /** Stacks the player pulled out of a sack. They usually go back in a minute later, and that
+     *  `[Sacks] +N` delta must not count as fresh loot. */
+    private val returns = HashMap<String, Bucket>()
 
     val holdCount: Int get() = holds.size
     val removalCount: Int get() = removals.size
@@ -28,6 +33,7 @@ class CaptureBuffer(
         holds.clear()
         removals.clear()
         skipped.clear()
+        returns.clear()
     }
 
     // ---- holds ---------------------------------------------------------------------------
@@ -128,6 +134,29 @@ class CaptureBuffer(
 
     fun noteSkipped(key: String, amount: Int) {
         skipped[key] = (skipped[key] ?: 0) + amount
+    }
+
+    /** Remembers that [amount] of [key] left a sack and may come back. */
+    fun noteReturn(key: String, amount: Int, now: Long) {
+        val existing = returns[key]
+        if (existing == null || now - existing.atMs > returnTtlMs) {
+            returns[key] = Bucket(amount, now)
+        } else {
+            existing.amount += amount
+            existing.atMs = now
+        }
+    }
+
+    /** How much of [requested] was already taken out of a sack earlier. */
+    fun takeReturn(key: String, requested: Int, now: Long): Int {
+        val existing = returns[key] ?: return 0
+        if (now - existing.atMs > returnTtlMs) {
+            returns.remove(key)
+            return 0
+        }
+        val used = minOf(existing.amount, requested)
+        if (existing.amount == used) returns.remove(key) else existing.amount -= used
+        return used
     }
 
     /** Consumes the earlier `[Sacks] -` bookkeeping; returns how much of [amount] it explains. */

@@ -859,199 +859,269 @@
     {
       "name": "Flawed Amber Gemstone",
       "key": "FLAWED_AMBER_GEM",
+      "compactsFrom": "Rough Amber Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 240
     },
     {
       "name": "Flawed Amethyst Gemstone",
       "key": "FLAWED_AMETHYST_GEM",
+      "compactsFrom": "Rough Amethyst Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 240
     },
     {
       "name": "Flawed Aquamarine Gemstone",
       "key": "FLAWED_AQUAMARINE_GEM",
+      "compactsFrom": "Rough Aquamarine Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 320
     },
     {
       "name": "Flawed Citrine Gemstone",
       "key": "FLAWED_CITRINE_GEM",
+      "compactsFrom": "Rough Citrine Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 320
     },
     {
       "name": "Flawed Jade Gemstone",
       "key": "FLAWED_JADE_GEM",
+      "compactsFrom": "Rough Jade Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 240
     },
     {
       "name": "Flawed Jasper Gemstone",
       "key": "FLAWED_JASPER_GEM",
+      "compactsFrom": "Rough Jasper Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 320
     },
     {
       "name": "Flawed Onyx Gemstone",
       "key": "FLAWED_ONYX_GEM",
+      "compactsFrom": "Rough Onyx Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 320
     },
     {
       "name": "Flawed Peridot Gemstone",
       "key": "FLAWED_PERIDOT_GEM",
+      "compactsFrom": "Rough Peridot Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 320
     },
     {
       "name": "Flawed Ruby Gemstone",
       "key": "FLAWED_RUBY_GEM",
+      "compactsFrom": "Rough Ruby Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 240
     },
     {
       "name": "Flawed Sapphire Gemstone",
       "key": "FLAWED_SAPPHIRE_GEM",
+      "compactsFrom": "Rough Sapphire Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 240
     },
     {
       "name": "Flawed Topaz Gemstone",
       "key": "FLAWED_TOPAZ_GEM",
+      "compactsFrom": "Rough Topaz Gemstone",
+      "compactRatio": 80,
       "color": "§a",
       "npc": 240
     },
     {
       "name": "Fine Amber Gemstone",
       "key": "FINE_AMBER_GEM",
+      "compactsFrom": "Flawed Amber Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 19200
     },
     {
       "name": "Fine Amethyst Gemstone",
       "key": "FINE_AMETHYST_GEM",
+      "compactsFrom": "Flawed Amethyst Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 19200
     },
     {
       "name": "Fine Aquamarine Gemstone",
       "key": "FINE_AQUAMARINE_GEM",
+      "compactsFrom": "Flawed Aquamarine Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 25600
     },
     {
       "name": "Fine Citrine Gemstone",
       "key": "FINE_CITRINE_GEM",
+      "compactsFrom": "Flawed Citrine Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 25600
     },
     {
       "name": "Fine Jade Gemstone",
       "key": "FINE_JADE_GEM",
+      "compactsFrom": "Flawed Jade Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 19200
     },
     {
       "name": "Fine Jasper Gemstone",
       "key": "FINE_JASPER_GEM",
+      "compactsFrom": "Flawed Jasper Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 25600
     },
     {
       "name": "Fine Onyx Gemstone",
       "key": "FINE_ONYX_GEM",
+      "compactsFrom": "Flawed Onyx Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 25600
     },
     {
       "name": "Fine Opal Gemstone",
       "key": "FINE_OPAL_GEM",
+      "compactsFrom": "Flawed Opal Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 19200
     },
     {
       "name": "Fine Peridot Gemstone",
       "key": "FINE_PERIDOT_GEM",
+      "compactsFrom": "Flawed Peridot Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 25600
     },
     {
       "name": "Fine Ruby Gemstone",
       "key": "FINE_RUBY_GEM",
+      "compactsFrom": "Flawed Ruby Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 19200
     },
     {
       "name": "Fine Sapphire Gemstone",
       "key": "FINE_SAPPHIRE_GEM",
+      "compactsFrom": "Flawed Sapphire Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 19200
     },
     {
       "name": "Fine Topaz Gemstone",
       "key": "FINE_TOPAZ_GEM",
+      "compactsFrom": "Flawed Topaz Gemstone",
+      "compactRatio": 80,
       "color": "§9",
       "npc": 19200
     },
     {
       "name": "Flawless Amber Gemstone",
       "key": "FLAWLESS_AMBER_GEM",
+      "compactsFrom": "Fine Amber Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Amethyst Gemstone",
       "key": "FLAWLESS_AMETHYST_GEM",
+      "compactsFrom": "Fine Amethyst Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Aquamarine Gemstone",
       "key": "FLAWLESS_AQUAMARINE_GEM",
+      "compactsFrom": "Fine Aquamarine Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Citrine Gemstone",
       "key": "FLAWLESS_CITRINE_GEM",
+      "compactsFrom": "Fine Citrine Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Jade Gemstone",
       "key": "FLAWLESS_JADE_GEM",
+      "compactsFrom": "Fine Jade Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Jasper Gemstone",
       "key": "FLAWLESS_JASPER_GEM",
+      "compactsFrom": "Fine Jasper Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Onyx Gemstone",
       "key": "FLAWLESS_ONYX_GEM",
+      "compactsFrom": "Fine Onyx Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Opal Gemstone",
       "key": "FLAWLESS_OPAL_GEM",
+      "compactsFrom": "Fine Opal Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Peridot Gemstone",
       "key": "FLAWLESS_PERIDOT_GEM",
+      "compactsFrom": "Fine Peridot Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Ruby Gemstone",
       "key": "FLAWLESS_RUBY_GEM",
+      "compactsFrom": "Fine Ruby Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Sapphire Gemstone",
       "key": "FLAWLESS_SAPPHIRE_GEM",
+      "compactsFrom": "Fine Sapphire Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
       "name": "Flawless Topaz Gemstone",
       "key": "FLAWLESS_TOPAZ_GEM",
+      "compactsFrom": "Fine Topaz Gemstone",
+      "compactRatio": 80,
       "color": "§5"
     },
     {
@@ -1584,6 +1654,12 @@
       "npc": 10000
     },
     {
+      "name": "Littlefoot Fluff",
+      "key": "LITTLEFOOT_FLUFF",
+      "color": "§6",
+      "npc": 1000000
+    },
+    {
       "name": "Caged Wisp",
       "key": "CAGED_WISP",
       "color": "§6",
@@ -1604,6 +1680,31 @@
       "name": "Enchanted Book (Ice Cold I)",
       "key": "ENCHANTMENT_ICE_COLD_1",
       "color": "§f"
+    },
+    {
+      "name": "Enchanted Book (Smoldering II)",
+      "key": "ENCHANTMENT_SMOLDERING_2",
+      "color": "§f"
+    },
+    {
+      "name": "Enchanted Book (Smoldering III)",
+      "key": "ENCHANTMENT_SMOLDERING_3",
+      "color": "§f"
+    },
+    {
+      "name": "Enchanted Book (Smoldering IV)",
+      "key": "ENCHANTMENT_SMOLDERING_4",
+      "color": "§f"
+    },
+    {
+      "name": "Enchanted Book (Smoldering V)",
+      "key": "ENCHANTMENT_SMOLDERING_5",
+      "color": "§a"
+    },
+    {
+      "name": "Enchanted Book (Smoldering VI)",
+      "key": "ENCHANTMENT_SMOLDERING_6",
+      "color": "§9"
     },
     {
       "name": "Crimson Essence",

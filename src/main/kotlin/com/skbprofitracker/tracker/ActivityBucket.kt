@@ -55,7 +55,7 @@ object ActivityBucket {
      * next vein is normal.
      */
     private const val SLAYER_GRACE_MS = 60_000L
-    private const val MINING_GRACE_MS = 90_000L
+    private const val MINING_GRACE_MS = 60_000L
     private const val RIFT_GRACE_MS = 60_000L
     private const val TAIL_MS = 15_000L
     private const val SECOND_MS = 1_000L
@@ -163,7 +163,16 @@ object ActivityBucket {
         private set
 
     private var lastStrongMs = 0L
+    /** Last time the player actually swung at or damaged a mob; purse gains are gated on it. */
+    private var lastAttackMs = 0L
     private var lastSignalMs = 0L
+
+    private data class BucketMark(val at: Long, val activity: Activity?)
+
+    /** Hypixel batches sack changes for up to a minute, so credits are attributed to the
+     * bucket that was running when the covered window started. */
+    private val bucketHistory = ArrayDeque<BucketMark>()
+    private const val HISTORY_MS = 120_000L
     private var closedAtMs = 0L
     private var lastCountMs = 0L
     private var lastStateSignature = ""
@@ -201,6 +210,7 @@ object ActivityBucket {
     }
 
     fun onStrongSignal(source: String = "unknown") {
+        if (source == "attack") lastAttackMs = System.currentTimeMillis()
         val now = System.currentTimeMillis()
 
         // A GUI eats the click, so a destroy/attack packet while a screen is open cannot be real
@@ -242,6 +252,24 @@ object ActivityBucket {
     }
 
     /** The bucket a drop belongs to at this very moment, or null when nothing is running. */
+    /** The bucket that was active at [whenMs], used to place delayed sack credits. */
+    fun bucketAt(whenMs: Long): Activity? {
+        var found: Activity? = null
+        for (mark in bucketHistory) {
+            if (mark.at <= whenMs) found = mark.activity else break
+        }
+        return found ?: current
+    }
+
+    private fun recordBucket(now: Long) {
+        val last = bucketHistory.lastOrNull()
+        if (last != null && last.activity == current && now - last.at < 1_000L) return
+        bucketHistory.addLast(BucketMark(now, current))
+        while (bucketHistory.size > 1 && now - bucketHistory.first().at > HISTORY_MS) {
+            bucketHistory.removeFirst()
+        }
+    }
+
     fun bucketForPickup(): Activity? {
         if (isPaused) return null
         return current
@@ -268,6 +296,7 @@ object ActivityBucket {
 
         refreshRegion()
         updateCurrent(now)
+        recordBucket(now)
 
         // A boss fight is one continuous stretch of work even when no sword swing lands for a
         // while: dodging a phase, waiting out a damage window, or chasing the boss across the
@@ -414,9 +443,32 @@ object ActivityBucket {
         Activity.RIFT -> RIFT_GRACE_MS
     }
 
+    /** Mob-kill coins only arrive right after a swing, so a purse jump without one is a sale. */
+    fun attackedRecently(windowMs: Long = 10_000L): Boolean =
+        lastAttackMs != 0L && System.currentTimeMillis() - lastAttackMs <= windowMs
+
+    /** Crystal Hollows time is excluded unless the player opted in with `/skbprofit nucleustime`. */
+    fun nucleusTimingEnabled(): Boolean =
+        com.skbprofitracker.utils.data.PersistentDataManager.skbprofitrackerData.nucleusTiming
+
+    fun setNucleusTiming(enabled: Boolean) {
+        com.skbprofitracker.utils.data.PersistentDataManager.skbprofitrackerData.nucleusTiming = enabled
+        com.skbprofitracker.utils.data.PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
     private fun countSecond() {
         if (!isCounting()) return
         val activity = current ?: return
+        if (activity == Activity.MINING && isCrystalHollowsArea()) {
+            // Crystal Hollows time never lands in the mining slice: either it is not counted at
+            // all (default) or it is booked as a crystal run on the nucleus slice.
+            if (!nucleusTimingEnabled()) return
+            val nucleus = BucketLedger.sliceStorage(activity, MINING_NUCLEUS)
+            nucleus.sessionElapsedSeconds += 1
+            nucleus.totalElapsedSeconds += 1
+            PersistentDataManager.saveSkbDataToFileAsync()
+            return
+        }
         val bucket = BucketLedger.storage(activity)
         bucket.sessionElapsedSeconds += 1
         bucket.totalElapsedSeconds += 1

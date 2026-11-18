@@ -44,6 +44,7 @@ object SkbProfitCommand {
                 "mining" -> setFilter(Activity.MINING, args.drop(1).joinToString(" "))
                 "mode" -> switchMode(args.getOrNull(1))
                 "price" -> switchPrice(args.getOrNull(1))
+                "nucleustime" -> switchNucleusTime(args.getOrNull(1))
                 "costs" -> printCosts()
                 "loot" -> printLoot(args.getOrNull(1))
                 "debug" -> {
@@ -137,6 +138,26 @@ object SkbProfitCommand {
             }
         }
         ChatUtils.sendLocalChat("§7Viewing §6${BucketLedger.viewMode.name.lowercase()}§7 numbers.", true)
+    }
+
+    /**
+     * Crystal Hollows time is not counted by default, so hunting for a crystal does not drag the
+     * mining coins/hour down. Turn it on to include the time when you actually run the altar.
+     */
+    private fun switchNucleusTime(raw: String?) {
+        val enabled = when (raw?.lowercase()) {
+            "on", "true", "1" -> true
+            "off", "false", "0" -> false
+            null, "toggle" -> !ActivityBucket.nucleusTimingEnabled()
+            else -> {
+                ChatUtils.sendLocalChat("§cUsage: /skbprofit nucleustime <on|off>")
+                return
+            }
+        }
+        ActivityBucket.setNucleusTiming(enabled)
+        ChatUtils.sendLocalChat(
+            if (enabled) "§aCrystal Hollows time is now counted" else "§7Crystal Hollows time is no longer counted",
+        )
     }
 
     private fun switchPrice(mode: String?) {

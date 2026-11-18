@@ -118,6 +118,7 @@ ESSENCES = [
 
 # Corpse drops that are only sold on the auction house, so they never appear in the bazaar.
 CORPSE_EXTRAS = [
+    ("Littlefoot Fluff", "LITTLEFOOT_FLUFF"),
     ("Caged Wisp", "CAGED_WISP"),
     ("Frostbitten Dye", "DYE_FROSTBITTEN"),
     ("Shattered Locket", "SHATTERED_PENDANT"),
@@ -137,6 +138,12 @@ MINING_CONSUMABLES = [
 # the enchantment id. Ice Cold I is the only book a frozen corpse prints.
 FIXED_BOOKS = [
     ("Enchanted Book (Ice Cold I)", "ENCHANTMENT_ICE_COLD_1"),
+    # Inferno Demonlord now drops the higher Smoldering tiers (0.27.3 loot table change).
+    ("Enchanted Book (Smoldering II)", "ENCHANTMENT_SMOLDERING_2"),
+    ("Enchanted Book (Smoldering III)", "ENCHANTMENT_SMOLDERING_3"),
+    ("Enchanted Book (Smoldering IV)", "ENCHANTMENT_SMOLDERING_4"),
+    ("Enchanted Book (Smoldering V)", "ENCHANTMENT_SMOLDERING_5"),
+    ("Enchanted Book (Smoldering VI)", "ENCHANTMENT_SMOLDERING_6"),
 ]
 
 ROW = re.compile(r"^\|\s*(.+?)\s*\|\s*`([^`]+)`\s*\|\s*(BZ|LBIN)\s*\|")
@@ -249,9 +256,17 @@ def slayer_rows() -> list[dict]:
 
 def mining_rows() -> list[dict]:
     items: list[dict] = []
+    # Gemstone tiers compact 80:1 (Rough -> Flawed -> Fine -> Flawless). The metadata lets a
+    # sack line such as `-1,520 Flawed` + `+19 Fine` cancel the raw units already credited.
+    previous_tier: tuple[str, str] | None = None
     for tier_name, tier_key in GEM_TIERS:
         for gem in GEMS:
-            items.append({"name": f"{tier_name} {gem.title()} Gemstone", "key": f"{tier_key}_{gem}_GEM"})
+            entry = {"name": f"{tier_name} {gem.title()} Gemstone", "key": f"{tier_key}_{gem}_GEM"}
+            if previous_tier is not None:
+                entry["compactsFrom"] = f"{previous_tier[0]} {gem.title()} Gemstone"
+                entry["compactRatio"] = 80
+            items.append(entry)
+        previous_tier = (tier_name, tier_key)
     for ore_name, ore_key, enchanted_name, enchanted_key, ratio in ORES:
         items.append({"name": ore_name, "key": ore_key})
         items.append(

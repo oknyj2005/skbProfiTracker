@@ -5,8 +5,10 @@ import com.skbprofitracker.events.EventBus
 import com.skbprofitracker.events.models.ChatEvent
 import com.skbprofitracker.events.models.ClientTickEvent
 import com.skbprofitracker.items.ItemTable
+import com.skbprofitracker.tracker.Activity
 import com.skbprofitracker.tracker.ActivityBucket
 import com.skbprofitracker.tracker.BucketLedger
+import com.skbprofitracker.tracker.SackShadow
 import com.skbprofitracker.tracker.SupercraftGuard
 import com.skbprofitracker.utils.ChatUtils.getUnformattedString
 import com.skbprofitracker.utils.ChatUtils.removeFormatting
@@ -37,6 +39,9 @@ object SacksItemPickupPublisher {
     private val ITEM_LINE_REGEX = Regex("(\\+[\\d,]+) (.+) \\((.+)\\)")
     private val REMOVED_LINE_REGEX = Regex("(-[\\d,]+) (.+) \\((.+)\\)")
 
+    /** `(Last 18s.)` tells us which stretch of time the batch covers. */
+    private val LAST_WINDOW = Regex("\\(Last (\\d+)s\\.\\)")
+
     /** Hypixel may delay the chat line by up to 30s, so anything recent is suspect. */
     private const val MAX_SACKS_MESSAGE_DELAY_MS = 35_000L
 
@@ -59,7 +64,12 @@ object SacksItemPickupPublisher {
         EventBus.subscribe(ClientTickEvent::class) { flushDeferredAdds() }
     }
 
-    private data class DeferredAdd(val items: List<SackPickup>, val dueAtMs: Long)
+    private data class DeferredAdd(
+        val items: List<SackPickup>,
+        val withdrawals: List<SackPickup>,
+        val windowMs: Long,
+        val dueAtMs: Long,
+    )
 
     /** Sack lines can reach the client before the scanner saw the matching inventory change. */
     private val deferredAdds = mutableListOf<DeferredAdd>()
@@ -71,7 +81,7 @@ object SacksItemPickupPublisher {
         val due = deferredAdds.filter { it.dueAtMs <= now }
         if (due.isEmpty()) return
         deferredAdds.removeAll(due)
-        due.forEach { onSackItems(it.items) }
+        due.forEach { onSackItems(it.items, it.withdrawals, it.windowMs) }
     }
 
     private fun onChat(event: ChatEvent) {
@@ -84,17 +94,19 @@ object SacksItemPickupPublisher {
                     // A single line can carry both halves: the hover lists `Added items:` and
                     // `Removed items:` separately. Withdrawals are handled first so they cancel
                     // whatever the inventory scan already booked for the same stack.
+                    val items = if (SACKS_TRIGGER.matches(text)) parseItems(event.message) else emptyList()
                     val withdrawals = parseWithdrawals(event.message)
-                    if (withdrawals.isNotEmpty()) onSackWithdrawals(withdrawals)
 
-                    if (SACKS_TRIGGER.matches(text)) {
-                        val items = parseItems(event.message)
+                    if (items.isNotEmpty() || withdrawals.isNotEmpty()) {
                         // Give the 250ms inventory scan a moment to record the matching
                         // decrease as a deposit, otherwise a quick "put it back" is credited
-                        // as fresh loot before the deposit exists.
-                        if (items.isNotEmpty()) {
-                            deferredAdds.add(DeferredAdd(items, System.currentTimeMillis() + SACK_DEFER_MS))
-                        }
+                        // as fresh loot before the deposit exists. Both halves travel together
+                        // so a compaction line can cancel its own raw materials.
+                        val windowMs = LAST_WINDOW.find(text)
+                            ?.groupValues?.get(1)?.toLongOrNull()?.times(1_000L) ?: 0L
+                        deferredAdds.add(
+                            DeferredAdd(items, withdrawals, windowMs, System.currentTimeMillis() + SACK_DEFER_MS)
+                        )
                     }
                 }
 
@@ -136,13 +148,24 @@ object SacksItemPickupPublisher {
         return used
     }
 
-    private fun onSackItems(items: List<SackPickup>) {
+    private fun onSackItems(items: List<SackPickup>, withdrawals: List<SackPickup>, windowMs: Long) {
         val now = System.currentTimeMillis()
         // Even with the sack screen open this line still carries real loot mined earlier, so it
         // is not dropped wholesale: the moves made on screen are netted by [takeManualDeposit].
         if (now - lastStashToSacksAtMs < MAX_SACKS_MESSAGE_DELAY_MS) return
 
-        val activity = ActivityBucket.bucketForPickup() ?: return
+        // Attribute the batch to the bucket that was running when its window opened: a line
+        // that arrives after flying to another island still belongs to the mining session.
+        val activity = ActivityBucket.bucketAt(now - windowMs) ?: ActivityBucket.bucketForPickup() ?: return
+
+        val removed = withdrawals
+            .mapNotNull { pickup ->
+                val entry = ItemTable.get(ItemUtils.getCleanItemName(pickup.itemName)) ?: return@mapNotNull null
+                entry.key to pickup.amount
+            }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, amounts) -> amounts.sum() }
+            .toMutableMap()
 
         for (pickup in items) {
             if (pickup.amount <= 0) continue
@@ -150,31 +173,55 @@ object SacksItemPickupPublisher {
             val entry = ItemTable.get(ItemUtils.getCleanItemName(pickup.itemName)) ?: continue
             if (SupercraftGuard.guardsSack(pickup.itemName)) continue
 
-            // The delta covers everything that reached the sack since the last line, including
-            // stacks the player carried in themselves; only the remainder is fresh loot.
-            val fresh = pickup.amount - takeManualDeposit(entry.key, pickup.amount)
+            // Stacks that were pulled out earlier and put back now are not loot at all.
+            val returned = InventoryItemPickupPublisher.takeReturn(entry.key, pickup.amount)
+            if (returned > 0) Debug.trace("[sacks] return -$returned ${entry.key}")
+            val net = pickup.amount - returned
+            if (net <= 0) continue
+
+            // The delta also covers everything that reached the sack since the last line,
+            // including stacks the player carried in themselves; only the remainder is fresh loot.
+            val fresh = net - takeManualDeposit(entry.key, net)
             if (fresh <= 0) continue
 
             // Go through the ledger so the item lands in the running slice and so corpse or
             // nucleus loot that went straight into a sack is not counted a second time.
-            Debug.trace("[sacks] credit +$fresh ${entry.key} (delta ${pickup.amount})")
+            Debug.trace("[sacks] credit +$fresh ${entry.key} -> ${activity.name} (delta ${pickup.amount}, window ${windowMs}ms)")
             BucketLedger.add(activity, entry.key, fresh.toLong())
+            SackShadow.mark(entry.key, fresh)
             ActivityBucket.onWeakSignal()
+
+            consumeCompaction(activity, entry, fresh.toLong(), removed)
+        }
+
+        for ((key, amount) in removed) {
+            if (amount > 0) InventoryItemPickupPublisher.noteWithdrawal(key, amount)
         }
     }
 
     /**
-     * A sack is storage: taking a stack out of it just moves items the player already owned.
-     * The scanner sees the inventory go up and would read that as loot, so the negative delta
-     * from the chat line cancels it (or removes it again if it was already booked).
+     * `+19 Fine Peridot` next to `-1,520 Flawed Peridot` is the compactor at work: the raw
+     * units were already credited when they reached the sack, so the removal cancels them
+     * instead of the product being counted on top of the materials it replaced.
      */
-    private fun onSackWithdrawals(items: List<SackPickup>) {
-        for (withdrawal in items) {
-            if (withdrawal.amount <= 0) continue
-            val entry = ItemTable.get(ItemUtils.getCleanItemName(withdrawal.itemName)) ?: continue
-            if (Debug.enabled) Debug.trace("[sacks] withdrew ${withdrawal.amount}x ${entry.key}")
-            InventoryItemPickupPublisher.noteWithdrawal(entry.key, withdrawal.amount)
-        }
+    private fun consumeCompaction(
+        activity: Activity,
+        entry: ItemTable.Entry,
+        credited: Long,
+        removed: MutableMap<String, Int>,
+    ) {
+        val parentName = entry.compactsFrom ?: return
+        val ratio = entry.compactRatio
+        if (ratio <= 0) return
+
+        val parentKey = ItemTable.get(ItemUtils.getCleanItemName(parentName))?.key ?: return
+        val available = removed[parentKey] ?: return
+        val needed = minOf(available.toLong(), ratio * credited).toInt()
+        if (needed <= 0) return
+
+        removed[parentKey] = available - needed
+        BucketLedger.subtract(activity, parentKey, needed.toLong())
+        Debug.decision("[sacks] compaction -$needed $parentKey for +$credited ${entry.key}")
     }
 
     /**
