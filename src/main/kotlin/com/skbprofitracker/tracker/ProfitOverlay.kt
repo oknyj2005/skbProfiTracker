@@ -107,6 +107,9 @@ object ProfitOverlay {
                     val on = ActivityBucket.nucleusTimingEnabled()
                     add(GuiButton(4, "${GRAY}[Nucleus time: ${if (on) GREEN + "on" else RED + "off"}${GRAY}]") {
                         ActivityBucket.setNucleusTiming(!on)
+                        // Crystal Hollows time is booked on the nucleus slice, so show that slice
+                        // as soon as the run timer is switched on.
+                        if (!on) BucketLedger.setFilter(Activity.MINING, ActivityBucket.MINING_NUCLEUS)
                     })
                 }
             }

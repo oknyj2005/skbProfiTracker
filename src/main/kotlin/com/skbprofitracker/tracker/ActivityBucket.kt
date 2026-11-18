@@ -514,11 +514,11 @@ object ActivityBucket {
     }
 
     private fun countSecond() {
-        if (!isCounting()) return
+        if (isPaused) return
         val activity = current ?: return
         if (activity == Activity.MINING && isCrystalHollowsArea()) {
-            // Crystal Hollows time never lands in the mining slice: either it is not counted at
-            // all (default) or it is booked as a crystal run on the nucleus slice.
+            // A crystal run is mostly running and placing items, so the toggle itself is the
+            // signal: when it is on, the clock runs without waiting for a mining swing.
             if (!nucleusTimingEnabled()) return
             val nucleus = BucketLedger.sliceStorage(activity, MINING_NUCLEUS)
             nucleus.sessionElapsedSeconds += 1
