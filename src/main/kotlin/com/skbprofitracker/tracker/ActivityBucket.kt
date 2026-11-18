@@ -150,6 +150,16 @@ object ActivityBucket {
      */
     private val recentStrongSignals = ArrayDeque<Long>()
 
+    private const val START_WINDOW_MS = 3_000L
+    private const val START_SIGNALS = 2
+    private const val TELEPORT_SQR = 64.0 * 64.0
+    private var pendingStartMs = 0L
+    private var pendingStartCount = 0
+    private var lastPosX = 0.0
+    private var lastPosY = 0.0
+    private var lastPosZ = 0.0
+    private var hasPos = false
+
     private const val AUTO_RESUME_SIGNALS = 10
     private const val AUTO_RESUME_WINDOW_MS = 10_000L
 
@@ -240,9 +250,55 @@ object ActivityBucket {
         if (Debug.enabled && (lastSignalMs == 0L || now - lastSignalMs > 10_000L)) {
             Debug.log("[signal] strong after ${if (lastSignalMs == 0L) "never" else "${(now - lastSignalMs) / 1000}s"} from $source")
         }
+        // One click can be a menu, an NPC or a stray swing. Real work repeats within a tick or
+        // two, so the session only opens after a second signal inside [START_WINDOW_MS].
+        if (!hasStrongSignal) {
+            if (now - pendingStartMs > START_WINDOW_MS) {
+                pendingStartMs = now
+                pendingStartCount = 0
+            }
+            pendingStartCount++
+            if (pendingStartCount < START_SIGNALS) {
+                lastStrongMs = now
+                lastSignalMs = now
+                Debug.log("[signal] armed by $source (one more to start)")
+                return
+            }
+        }
+
         lastStrongMs = now
         lastSignalMs = now
         hasStrongSignal = true
+    }
+
+    /**
+     * Warping into a new area reloads chunks and the client can keep the previous session alive,
+     * so the timer would run while the player is still standing in a loading screen. A jump of
+     * more than 64 blocks in one tick is a teleport, not movement: drop the old signal.
+     */
+    private fun checkTeleport() {
+        val player = SkbMod.mc.player ?: return
+        val pos = player.position()
+        if (!hasPos) {
+            hasPos = true
+            lastPosX = pos.x
+            lastPosY = pos.y
+            lastPosZ = pos.z
+            return
+        }
+        val dx = pos.x - lastPosX
+        val dy = pos.y - lastPosY
+        val dz = pos.z - lastPosZ
+        if (dx * dx + dy * dy + dz * dz > TELEPORT_SQR) {
+            if (hasStrongSignal) Debug.log("[signal] reset (teleport)")
+            hasStrongSignal = false
+            lastSignalMs = 0L
+            pendingStartMs = 0L
+            pendingStartCount = 0
+        }
+        lastPosX = pos.x
+        lastPosY = pos.y
+        lastPosZ = pos.z
     }
 
     /** Pickups and taking damage: can extend a window but never open one. */
@@ -294,6 +350,7 @@ object ActivityBucket {
     private fun onTick() {
         val now = System.currentTimeMillis()
 
+        checkTeleport()
         refreshRegion()
         updateCurrent(now)
         recordBucket(now)
