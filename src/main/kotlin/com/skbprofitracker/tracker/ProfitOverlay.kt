@@ -370,25 +370,34 @@ object ProfitOverlay {
         return "${GRAY}[Price: ${WHITE}$label${GRAY}]"
     }
 
+    /** The button clears the view that is on screen, so it says which one out loud: clicking
+     *  "reset" while Total is showing used to wipe the accumulated history by accident. */
     private fun resetButtonText(): String {
         val armed = System.currentTimeMillis() - resetArmedAtMs < RESET_CONFIRM_MS
+        val scope = if (BucketLedger.viewMode == TrackerViewMode.TOTAL) "${RED}Total" else "${WHITE}Session"
         return if (armed) {
-            "${GRAY}[${RED}Click again to reset ${BucketLedger.viewMode.name.lowercase()}${GRAY}]"
+            "${GRAY}[${RED}Click again to clear $scope${GRAY}]"
         } else {
-            "${GRAY}[${RED}Click to reset${GRAY}]"
+            "${GRAY}[Click to reset $scope${GRAY}]"
         }
     }
 
     private fun onResetClicked(activity: Activity) {
         val now = System.currentTimeMillis()
+        val cleared = if (BucketLedger.viewMode == TrackerViewMode.TOTAL) "total" else "session"
         if (now - resetArmedAtMs < RESET_CONFIRM_MS) {
             when (BucketLedger.viewMode) {
                 TrackerViewMode.SESSION -> ActivityBucket.resetSession(activity)
                 TrackerViewMode.TOTAL -> ActivityBucket.resetTotal(activity)
             }
             resetArmedAtMs = 0L
+            ChatUtils.sendLocalChat("${GRAY}Cleared $cleared for ${WHITE}${activity.name.lowercase()}${GRAY}.")
         } else {
             resetArmedAtMs = now
+            ChatUtils.sendLocalChat(
+                "${GRAY}About to clear $cleared for ${WHITE}${activity.name.lowercase()}${GRAY}. " +
+                    "Click again within 5s. Switch to the other view if that is not what you meant.",
+            )
         }
     }
 
