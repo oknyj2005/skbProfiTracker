@@ -74,3 +74,27 @@ bash tools/sim/run.sh
 
 `tools/deploy.sh` runs the same checks before it touches the client's `mods` folder, so a build
 whose decision table regressed never reaches the game.
+
+## 自动压缩（compactor）
+
+触发条件由 Hypixel 决定，不是玩家每挖一块就压：
+
+- 该物品在 sack 里达到 **25% 容量**，并且该物品开启了自动压缩，才会批量压一次
+- 因此一次压缩量很大（例如 1,520 个 Flawed → 19 个 Fine）
+
+`[Sacks]` 消息对两种情况的表达不同，代码三条路径对应处理：
+
+| 情况 | 消息形态 | 处理 |
+|---|---|---|
+| 原料压完后还有剩余 | 原料只出现**净值**，不出现在 Removed | 按净值记账即可，不会重复 |
+| 原料被压光（净减） | `Removed: -N 原料` 且 `Added: +X 产物` | `[sacks] compaction`：同条配对，冲减账本 |
+| 两半分在不同消息 | 一条只有产物，另一条只有原料减少 | `[sacks] pool`：原料减少进 10 分钟池子，产物入账时按压缩比冲减 |
+
+跨消息池只在同一批次里确实发生过压缩、且被扣的 key 属于某个产物的原料时才启用（`ItemTable.isCompactionParent`），避免把「玩家取出原料」误当成压缩。
+
+日志（`/skbprofit debug` 打开 verbose 可看全部）：
+
+```
+[sacks] compaction -1520 FLAWED_PERIDOT_GEM for +19 FINE_PERIDOT_GEM
+[sacks] pool -16000 ROUGH_AMETHYST_GEM for +200 FLAWED_AMETHYST_GEM
+```

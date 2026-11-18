@@ -15,6 +15,7 @@ class CaptureBuffer(
     private val pendingIncreaseMs: Long = 1_000L,
     private val removalCreditMs: Long = 10_000L,
     private val returnTtlMs: Long = 600_000L,
+    private val compactionPoolTtlMs: Long = 600_000L,
 ) {
     private class Bucket(var amount: Int, var atMs: Long)
 
@@ -26,14 +27,45 @@ class CaptureBuffer(
      *  `[Sacks] +N` delta must not count as fresh loot. */
     private val returns = HashMap<String, Bucket>()
 
+    /** Raw units the compactor ate in an earlier `[Sacks]` line. The product may only be
+     *  reported in a later line, and by then the material was already credited. */
+    private val compactionInputs = HashMap<String, Bucket>()
+
     val holdCount: Int get() = holds.size
     val removalCount: Int get() = removals.size
+    val compactionInputCount: Int get() = compactionInputs.size
 
     fun clear() {
         holds.clear()
         removals.clear()
         skipped.clear()
         returns.clear()
+        compactionInputs.clear()
+    }
+
+    // ---- compaction pool -------------------------------------------------------------
+
+    /** Remembers raw units that a compaction removed but whose product was not seen yet. */
+    fun noteCompactionInput(key: String, amount: Int, now: Long) {
+        if (amount <= 0) return
+        purgeCompactionInputs(now)
+        val existing = compactionInputs[key]
+        if (existing == null) compactionInputs[key] = Bucket(amount, now) else existing.amount += amount
+    }
+
+    /** Takes up to [requested] raw units from the pool; returns how many were available. */
+    fun takeCompactionInput(key: String, requested: Int, now: Long): Int {
+        purgeCompactionInputs(now)
+        val existing = compactionInputs[key] ?: return 0
+        val used = minOf(existing.amount, requested)
+        existing.amount -= used
+        if (existing.amount <= 0) compactionInputs.remove(key)
+        return used
+    }
+
+    private fun purgeCompactionInputs(now: Long) {
+        if (compactionInputs.isEmpty()) return
+        compactionInputs.entries.removeIf { now - it.value.atMs > compactionPoolTtlMs }
     }
 
     // ---- holds ---------------------------------------------------------------------------

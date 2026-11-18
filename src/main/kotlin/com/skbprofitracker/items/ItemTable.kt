@@ -28,6 +28,7 @@ object ItemTable {
     private var byName: Map<String, Entry> = emptyMap()
     private var byKey: Map<String, Entry> = emptyMap()
     private var byBaseName: Map<String, Set<String>> = emptyMap()
+    private val compactionParents = HashSet<String>()
 
     /** `Enchanted Book (Smite VI)` also shows up in chat as `Enchanted Book (Smite 6)`. */
     private val BOOK_NAME = Regex("^(Enchanted Book \\(.+?) (I|II|III|IV|V|VI|VII|VIII|IX|X)\\)$")
@@ -71,7 +72,13 @@ object ItemTable {
         byBaseName = map.values
             .groupBy { baseName(it.name) }
             .mapValues { (_, entries) -> entries.map { it.key }.toSet() }
-        SkbMod.LOGGER.info("Loaded ${map.size} tracked items")
+        compactionParents.clear()
+        for (entry in map.values) {
+            if (entry.compactRatio <= 0) continue
+            val parentName = entry.compactsFrom ?: continue
+            map[parentName]?.let { compactionParents.add(it.key) }
+        }
+        SkbMod.LOGGER.info("Loaded ${map.size} tracked items (${compactionParents.size} compaction parents)")
     }
 
     private fun bookAlias(name: String): String? {
@@ -106,6 +113,9 @@ object ItemTable {
     fun get(displayName: String): Entry? = byName[displayName]
 
     fun getByKey(key: String): Entry? = byKey[key]
+
+    /** True when [key] is the raw material of some compacted product. */
+    fun isCompactionParent(key: String): Boolean = compactionParents.contains(key)
 
     fun isTracked(displayName: String): Boolean = byName.containsKey(displayName)
 }

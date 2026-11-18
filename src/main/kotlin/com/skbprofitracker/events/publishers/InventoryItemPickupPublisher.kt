@@ -379,6 +379,14 @@ object InventoryItemPickupPublisher {
     fun takeReturn(key: String, amount: Int): Int =
         buffer.takeReturn(key, amount, System.currentTimeMillis())
 
+    /** Raw units a compaction consumed without its product being reported yet. */
+    fun noteCompactionInput(key: String, amount: Int) {
+        buffer.noteCompactionInput(key, amount, System.currentTimeMillis())
+    }
+
+    fun takeCompactionInput(key: String, amount: Int): Int =
+        buffer.takeCompactionInput(key, amount, System.currentTimeMillis())
+
     fun noteWithdrawal(key: String, amount: Int) {
         if (key.isBlank() || amount <= 0) return
 

@@ -108,6 +108,35 @@ fun main() {
         check("skipped withdrawal is used up", buffer.takeSkipped("OIL_BARREL", 1_408), 0)
     }
 
+    run {
+        val buffer = CaptureBuffer()
+        buffer.noteCompactionInput("ROUGH_AMETHYST_GEM", 80, 0L)
+        check("pool pays for one product", buffer.takeCompactionInput("ROUGH_AMETHYST_GEM", 80, 100L), 80)
+        check("pool is used up", buffer.takeCompactionInput("ROUGH_AMETHYST_GEM", 80, 200L), 0)
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.noteCompactionInput("ROUGH_AMETHYST_GEM", 40, 0L)
+        buffer.noteCompactionInput("ROUGH_AMETHYST_GEM", 40, 10L)
+        check("pool accumulates across lines", buffer.takeCompactionInput("ROUGH_AMETHYST_GEM", 80, 100L), 80)
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.noteCompactionInput("FLAWED_PERIDOT_GEM", 1_520, 0L)
+        check("pool gives what it has when short", buffer.takeCompactionInput("FLAWED_PERIDOT_GEM", 9_999, 100L), 1_520)
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.noteCompactionInput("TUNGSTEN", 6_880, 0L)
+        check("pool entry expires after ten minutes", buffer.takeCompactionInput("TUNGSTEN", 6_880, 700_000L), 0)
+    }
+    run {
+        val buffer = CaptureBuffer()
+        buffer.noteCompactionInput("UMBER", 160, 0L)
+        buffer.clear()
+        check("clear wipes the pool", buffer.takeCompactionInput("UMBER", 160, 100L), 0)
+    }
+
     println()
     println(if (failures == 0) "ALL $checks CHECKS PASSED" else "$failures of $checks CHECKS FAILED")
     if (failures != 0) kotlin.system.exitProcess(1)
