@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.8
+
+### Fixed
+- Compaction that reports its two halves in different `[Sacks]` lines no longer counts twice: the
+  raw units are parked in a ten minute pool and the product is netted against them (`[sacks] pool`).
+- A stack pulled out of a sack and put back a minute later is not credited as fresh loot any more.
+- The overlay reset button only ever clears the session. Clearing the accumulated total now requires
+  `/skbprofit reset total` and a confirmation in chat, because clicking reset while the total was on
+  screen used to wipe the history by accident.
+- The session no longer starts on a single stray click: a second strong signal within three seconds
+  is required, and a teleport resets the signal so changing islands does not leave the timer armed.
+
+### Added
+- `Littlefoot Fluff` (301 tracked items).
+
 ## 0.1.7
 
 ### Fixed

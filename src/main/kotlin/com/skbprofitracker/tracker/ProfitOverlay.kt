@@ -372,31 +372,37 @@ object ProfitOverlay {
 
     /** The button clears the view that is on screen, so it says which one out loud: clicking
      *  "reset" while Total is showing used to wipe the accumulated history by accident. */
+    /** The button only ever clears the session. The accumulated total can be wiped with
+     *  `/skbprofit reset total`, which asks for a confirmation in chat first. */
     private fun resetButtonText(): String {
         val armed = System.currentTimeMillis() - resetArmedAtMs < RESET_CONFIRM_MS
-        val scope = if (BucketLedger.viewMode == TrackerViewMode.TOTAL) "${RED}Total" else "${WHITE}Session"
         return if (armed) {
-            "${GRAY}[${RED}Click again to clear $scope${GRAY}]"
+            "${GRAY}[${RED}Click again to clear ${WHITE}Session${GRAY}]"
         } else {
-            "${GRAY}[Click to reset $scope${GRAY}]"
+            "${GRAY}[Click to reset ${WHITE}Session${GRAY}]"
         }
     }
 
     private fun onResetClicked(activity: Activity) {
-        val now = System.currentTimeMillis()
-        val cleared = if (BucketLedger.viewMode == TrackerViewMode.TOTAL) "total" else "session"
-        if (now - resetArmedAtMs < RESET_CONFIRM_MS) {
-            when (BucketLedger.viewMode) {
-                TrackerViewMode.SESSION -> ActivityBucket.resetSession(activity)
-                TrackerViewMode.TOTAL -> ActivityBucket.resetTotal(activity)
-            }
+        if (BucketLedger.viewMode == TrackerViewMode.TOTAL) {
             resetArmedAtMs = 0L
-            ChatUtils.sendLocalChat("${GRAY}Cleared $cleared for ${WHITE}${activity.name.lowercase()}${GRAY}.")
+            ChatUtils.sendLocalChat(
+                "${GRAY}The overlay button only clears the session. " +
+                    "Use ${WHITE}/skbprofit reset total${GRAY} to clear the accumulated total.",
+            )
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - resetArmedAtMs < RESET_CONFIRM_MS) {
+            ActivityBucket.resetSession(activity)
+            resetArmedAtMs = 0L
+            ChatUtils.sendLocalChat("${GRAY}Cleared session for ${WHITE}${activity.name.lowercase()}${GRAY}.")
         } else {
             resetArmedAtMs = now
             ChatUtils.sendLocalChat(
-                "${GRAY}About to clear $cleared for ${WHITE}${activity.name.lowercase()}${GRAY}. " +
-                    "Click again within 5s. Switch to the other view if that is not what you meant.",
+                "${GRAY}About to clear ${WHITE}Session${GRAY} for ${WHITE}${activity.name.lowercase()}${GRAY}. " +
+                    "Click again within 5s.",
             )
         }
     }
