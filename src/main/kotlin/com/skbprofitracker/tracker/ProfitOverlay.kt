@@ -344,7 +344,7 @@ object ProfitOverlay {
     private fun buildActions(activity: Activity, item: ItemLine): List<LineAction> = listOf(
         LineAction("${GRAY}[${GREEN}+${GRAY}]") { BucketLedger.adjust(activity, item.key, 1L) },
         LineAction("${GRAY}[${RED}-${GRAY}]") { BucketLedger.adjust(activity, item.key, -1L) },
-        LineAction("${GRAY}[${RED}x${GRAY}]") { BucketLedger.remove(activity, item.key) },
+        LineAction("${GRAY}[${RED}x${GRAY}]") { BucketLedger.remove(activity, item.key, item.amount) },
     )
 
     /** The button opens a chat menu (see [SkbProfitCommand.printTypes]); clicking a line picks that type. */

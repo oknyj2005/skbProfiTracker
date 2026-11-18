@@ -502,13 +502,42 @@ object BucketLedger {
      * the wrong number with no way to fix it from the UI.
      */
     fun adjust(activity: Activity, key: String, delta: Long) {
-        for (bucket in editBuckets(activity)) {
-            for (items in listOf(bucket.sessionItems, bucket.totalItems)) {
-                val next = (items[key] ?: 0L) + delta
-                if (next <= 0L) items.remove(key) else items[key] = next
-            }
-        }
+        // Only the bucket that actually holds the row is touched: applying the delta to every
+        // slice made `[+]` add the same unit once per slice when the ALL filter was active.
+        val buckets = editBuckets(activity)
+        val bucket = buckets
+            .filter { (itemsFor(it, viewMode)[key] ?: 0L) > 0L }
+            .maxByOrNull { itemsFor(it, viewMode)[key] ?: 0L }
+            ?: buckets.firstOrNull()
+            ?: return
+        applyDelta(itemsFor(bucket, viewMode), key, delta)
+        applyDelta(itemsFor(bucket, otherMode(viewMode)), key, delta)
         PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
+    private fun applyDelta(items: MutableMap<String, Long>, key: String, delta: Long) {
+        val next = (items[key] ?: 0L) + delta
+        if (next <= 0L) items.remove(key) else items[key] = next
+    }
+
+    private fun otherMode(mode: TrackerViewMode): TrackerViewMode =
+        if (mode == TrackerViewMode.SESSION) TrackerViewMode.TOTAL else TrackerViewMode.SESSION
+
+    private fun itemsFor(bucket: BucketData, mode: TrackerViewMode): MutableMap<String, Long> =
+        if (mode == TrackerViewMode.SESSION) bucket.sessionItems else bucket.totalItems
+
+    /** Subtracts [amount] of [key] from the visible range, largest slice first. */
+    private fun subtractAcross(buckets: List<BucketData>, mode: TrackerViewMode, key: String, amount: Long) {
+        var remaining = amount
+        for (bucket in buckets.sortedByDescending { itemsFor(it, mode)[key] ?: 0L }) {
+            if (remaining <= 0L) break
+            val items = itemsFor(bucket, mode)
+            val have = items[key] ?: 0L
+            if (have <= 0L) continue
+            val take = minOf(have, remaining)
+            if (have - take <= 0L) items.remove(key) else items[key] = have - take
+            remaining -= take
+        }
     }
 
     /** Removes up to [amount] of [key] from the visible range, e.g. a sack withdrawal. */
@@ -531,12 +560,21 @@ object BucketLedger {
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
-    /** Drops a whole row (the [x] button). */
-    fun remove(activity: Activity, key: String) {
-        for (bucket in editBuckets(activity)) {
-            bucket.sessionItems.remove(key)
-            bucket.totalItems.remove(key)
-        }
+    /**
+     * The [x] button removes the number the row shows, not the key itself.
+     *
+     * Dropping the key from every slice wiped thousands of units of an item when the player only
+     * meant to delete the one row that said `1,000x`; session and total both shrink by the same
+     * amount so the correction still reaches the other view.
+     */
+    fun remove(activity: Activity, key: String, amount: Long) {
+        val buckets = editBuckets(activity)
+        val shown = buckets.sumOf { itemsFor(it, viewMode)[key] ?: 0L }
+        val target = if (amount > 0L) minOf(amount, shown) else shown
+        if (target <= 0L) return
+
+        subtractAcross(buckets, viewMode, key, target)
+        subtractAcross(buckets, otherMode(viewMode), key, target)
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
