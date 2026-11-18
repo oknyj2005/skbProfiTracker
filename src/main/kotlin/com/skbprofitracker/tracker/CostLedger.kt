@@ -173,7 +173,11 @@ object CostLedger {
             return
         }
 
-        val activity = ActivityBucket.bucketForPickup() ?: return
+        // A potion is usually drunk in the Hub right after buying it, before the player warps
+        // into the mines, so there is no active bucket yet. Mining consumables are mining-only,
+        // so they are booked to the mining slice instead of being dropped.
+        val activity = ActivityBucket.bucketForPickup()
+            ?: if (key in MINING_CONSUMABLES) Activity.MINING else return
         val bucket = BucketLedger.storage(activity)
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
