@@ -134,6 +134,9 @@ object ActivityBucket {
     }
 
     /** Manual pause stops the timer and the ledger, as opposed to the automatic grace. */
+    private var pendingStartUntilMs = 0L
+    private const val PENDING_START_MS = 300_000L
+
     var isPaused: Boolean = false
         set(value) {
             field = value
@@ -217,6 +220,31 @@ object ActivityBucket {
     fun onBossSlain() {
         if (current != Activity.SLAYER) return
         BucketLedger.addBossKill(lastSlayerTypeName)
+    }
+
+    /**
+     * Drinking a mining consumable is an explicit "I am starting a run" action, so it starts the
+     * clock on its own instead of waiting for the second swing of a pickaxe. It also resumes a
+     * manual pause: nobody drinks a Fiesta Flask to keep staring at a frozen overlay.
+     *
+     * Potions are usually drunk in the Hub straight after buying them, where no bucket exists yet,
+     * so the request is parked and applied as soon as the player warps into a mining area.
+     */
+    fun onExplicitStart(source: String) {
+        val now = System.currentTimeMillis()
+        if (isPaused) {
+            isPaused = false
+            Debug.log("[signal] $source resumed the tracker")
+        }
+        if (current == null) {
+            pendingStartUntilMs = now + PENDING_START_MS
+            Debug.log("[signal] $source is waiting for a bucket")
+            return
+        }
+        hasStrongSignal = true
+        lastStrongMs = now
+        lastSignalMs = now
+        Debug.log("[signal] $source started the timer")
     }
 
     fun onStrongSignal(source: String = "unknown") {
@@ -354,6 +382,18 @@ object ActivityBucket {
         refreshRegion()
         updateCurrent(now)
         recordBucket(now)
+
+        if (pendingStartUntilMs > 0L) {
+            if (current != null) {
+                hasStrongSignal = true
+                lastStrongMs = now
+                lastSignalMs = now
+                pendingStartUntilMs = 0L
+                Debug.log("[signal] parked start applied")
+            } else if (now > pendingStartUntilMs) {
+                pendingStartUntilMs = 0L
+            }
+        }
 
         // A boss fight is one continuous stretch of work even when no sword swing lands for a
         // while: dodging a phase, waiting out a damage window, or chasing the boss across the

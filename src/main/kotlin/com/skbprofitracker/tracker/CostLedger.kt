@@ -179,6 +179,7 @@ object CostLedger {
         val activity = ActivityBucket.bucketForPickup()
             ?: if (key in MINING_CONSUMABLES) Activity.MINING else return
         val bucket = BucketLedger.storage(activity)
+        if (key in MINING_CONSUMABLES) ActivityBucket.onExplicitStart(key)
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
         PersistentDataManager.saveSkbDataToFileAsync()
