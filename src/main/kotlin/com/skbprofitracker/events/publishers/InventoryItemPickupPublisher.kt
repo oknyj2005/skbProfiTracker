@@ -281,8 +281,17 @@ object InventoryItemPickupPublisher {
                 val currentTotal = currentInventory[key] ?: 0
                 if (currentTotal >= previousTotal) continue
                 val removed = previousTotal - currentTotal
-                when (removalVerdict) {
+                // Fiesta / potato / filet / pie never enter a sack, so their disappearance is
+                // always a drink. Charging them regardless of the screen verdict also covers the
+                // stale-title case that silently dropped a potion in the past.
+                val forcedConsumable = removalVerdict != RemovalVerdict.COST_AND_CREDIT &&
+                    removalVerdict != RemovalVerdict.DEPOSIT &&
+                    CostLedger.isMiningConsumable(key)
+                when (if (forcedConsumable) RemovalVerdict.COST_AND_CREDIT else removalVerdict) {
                     RemovalVerdict.COST_AND_CREDIT -> {
+                        if (CostLedger.isCostKey(key)) {
+                            Debug.decision("[cost] saw $key -$removed (screen=open) -> charging")
+                        }
                         addPendingRemoval(key, removed)
                         CostLedger.onItemRemoved(key, removed)
                     }

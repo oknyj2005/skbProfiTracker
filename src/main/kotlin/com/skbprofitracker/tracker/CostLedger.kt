@@ -137,6 +137,12 @@ object CostLedger {
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
+    /** Mining potions are drunk, never deposited, so a disappearance is always a cost. */
+    fun isMiningConsumable(key: String): Boolean = key in MINING_CONSUMABLES
+
+    /** True when the key is something this ledger would ever charge. */
+    fun isCostKey(key: String): Boolean = key in COST_KEYS || key in NUCLEUS_MATERIAL_KEYS
+
     fun onItemRemoved(key: String, amount: Int) {
         if (amount <= 0) return
         if (key !in COST_KEYS && key !in NUCLEUS_MATERIAL_KEYS) return
@@ -177,8 +183,14 @@ object CostLedger {
         // into the mines, so there is no active bucket yet. Mining consumables are mining-only,
         // so they are booked to the mining slice instead of being dropped.
         val activity = ActivityBucket.bucketForPickup()
-            ?: if (key in MINING_CONSUMABLES) Activity.MINING else return
+            ?: if (key in MINING_CONSUMABLES) {
+                Activity.MINING
+            } else {
+                Debug.decision("[cost] dropped $key x$amount (no bucket)")
+                return
+            }
         val bucket = BucketLedger.storage(activity)
+        Debug.decision("[cost] booked $key x$amount -> ${activity.name.lowercase()}")
         if (key in MINING_CONSUMABLES) ActivityBucket.onExplicitStart(key)
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
