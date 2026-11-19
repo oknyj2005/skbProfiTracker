@@ -45,7 +45,7 @@ object CostLedger {
      * block placement first: the stack goes 1 -> 0, the server rejects it, the stack comes back
      * 0 -> 1 and the real consumption then goes 1 -> 0 again. Two removals, one potion.
      */
-    private const val CONSUMABLE_DEDUPE_MS = 5_000L
+    private const val CONSUMABLE_DEDUPE_MS = 2_500L
 
     /** Materials are handed over in a menu, where a double click is a real second hand-in. */
     private const val MATERIAL_DEDUPE_MS = 1_000L
