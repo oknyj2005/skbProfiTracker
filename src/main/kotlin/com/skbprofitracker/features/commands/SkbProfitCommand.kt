@@ -68,6 +68,9 @@ object SkbProfitCommand {
      * the first call prints a clickable [Confirm], running it again within the window executes.
      * Clicking the overlay button already needs two clicks, this is the chat side of the same rule.
      */
+    /** Entry point for the overlay button: same flow as the command, including the chat confirm. */
+    fun requestReset(scope: String?) = reset(scope)
+
     private fun reset(scope: String?) {
         val activity = ActivityBucket.current
         if (activity == null) {

@@ -385,6 +385,9 @@ object ProfitOverlay {
     /** The button only ever clears the session. The accumulated total can be wiped with
      *  `/skbprofit reset total`, which asks for a confirmation in chat first. */
     private fun resetButtonText(): String {
+        if (BucketLedger.viewMode == TrackerViewMode.TOTAL) {
+            return "${GRAY}[Click to reset ${WHITE}Total${GRAY}]"
+        }
         val armed = System.currentTimeMillis() - resetArmedAtMs < RESET_CONFIRM_MS
         return if (armed) {
             "${GRAY}[${RED}Click again to clear ${WHITE}Session${GRAY}]"
@@ -394,12 +397,11 @@ object ProfitOverlay {
     }
 
     private fun onResetClicked(activity: Activity) {
+        // Clearing the accumulated total is irreversible, so it always goes through the chat
+        // confirmation first: one click arms it, the [Confirm] line in chat carries it out.
         if (BucketLedger.viewMode == TrackerViewMode.TOTAL) {
             resetArmedAtMs = 0L
-            ChatUtils.sendLocalChat(
-                "${GRAY}The overlay button only clears the session. " +
-                    "Use ${WHITE}/skbprofit reset total${GRAY} to clear the accumulated total.",
-            )
+            SkbProfitCommand.requestReset("total")
             return
         }
 

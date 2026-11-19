@@ -189,6 +189,9 @@ object ActivityBucket {
     private var closedAtMs = 0L
     private var lastCountMs = 0L
     private var lastStateSignature = ""
+    /** Which action last started the clock; printed on every state change so a surprise
+     *  start can be traced back without enabling verbose logging first. */
+    private var lastSignalSource = "none"
     private var hasStrongSignal = false
     private var slayerQuest: SlayerType? = null
 
@@ -244,6 +247,7 @@ object ActivityBucket {
         hasStrongSignal = true
         lastStrongMs = now
         lastSignalMs = now
+        lastSignalSource = source
         Debug.log("[signal] $source started the timer")
     }
 
@@ -297,6 +301,7 @@ object ActivityBucket {
         lastStrongMs = now
         lastSignalMs = now
         hasStrongSignal = true
+        lastSignalSource = source
     }
 
     /**
@@ -388,6 +393,7 @@ object ActivityBucket {
                 hasStrongSignal = true
                 lastStrongMs = now
                 lastSignalMs = now
+                lastSignalSource = "parked potion"
                 pendingStartUntilMs = 0L
                 Debug.log("[signal] parked start applied")
             } else if (now > pendingStartUntilMs) {
@@ -408,7 +414,10 @@ object ActivityBucket {
         val signature = "${current?.name}|${isCounting()}|$isPaused"
         if (signature != lastStateSignature) {
             lastStateSignature = signature
-            Debug.decision("[state] $signature world=$world zone=$zone elapsed=${current?.let { elapsedSeconds(it) } ?: 0}")
+            Debug.decision(
+                "[state] $signature world=$world zone=$zone signal=$lastSignalSource " +
+                    "elapsed=${current?.let { elapsedSeconds(it) } ?: 0}",
+            )
         }
 
         if (now - lastCountMs >= SECOND_MS) {
