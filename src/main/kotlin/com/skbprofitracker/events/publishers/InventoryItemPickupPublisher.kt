@@ -284,9 +284,14 @@ object InventoryItemPickupPublisher {
                 // Fiesta / potato / filet / pie never enter a sack, so their disappearance is
                 // always a drink. Charging them regardless of the screen verdict also covers the
                 // stale-title case that silently dropped a potion in the past.
+                // Putting a potion into a chest is a move, not a drink: if the open container
+                // gained the same key, the item is not gone. Everything else (stale title, plain
+                // inventory) is treated as a drink.
+                val storedAway = (currentContainer[key] ?: 0) - (previousCont[key] ?: 0) > 0
                 val forcedConsumable = removalVerdict != RemovalVerdict.COST_AND_CREDIT &&
                     removalVerdict != RemovalVerdict.DEPOSIT &&
-                    CostLedger.isMiningConsumable(key)
+                    CostLedger.isMiningConsumable(key) &&
+                    !storedAway
                 when (if (forcedConsumable) RemovalVerdict.COST_AND_CREDIT else removalVerdict) {
                     RemovalVerdict.COST_AND_CREDIT -> {
                         if (CostLedger.isCostKey(key)) {
