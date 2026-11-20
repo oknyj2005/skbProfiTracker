@@ -14,13 +14,9 @@ Currently targeted at **mining** and **slayer** (including Rift), on **Minecraft
 
 ## Download
 
-Grab the jar from **[Releases](https://github.com/oknyj2005/skbProfiTracker/releases)** and drop it
-into `.minecraft/mods/`. No account needed — the release assets are public.
-
-## Status
-
-`0.1.0` — first public release. Mining and slayer work end to end; fishing, dungeons and
-garden are out of scope.
+Download the mod jar and its `SHA256SUMS.txt` from the **[latest release](https://github.com/oknyj2005/skbProfiTracker/releases/latest)**.
+Put the jar in `.minecraft/mods/` alongside Fabric API and Fabric Language Kotlin. Use
+Minecraft 26.2 with Fabric Loader 0.18.1 or newer and Java 25 or newer.
 
 ## How it counts
 
@@ -30,15 +26,14 @@ garden are out of scope.
   reprices against the live snapshot. Price order is Bazaar → lowest BIN → NPC sell price,
   with the NPC price acting as a floor (so an item worth less than its NPC value is still
   worth its NPC value).
-* **Active time.** A strong signal (breaking a block, hitting a mob) starts the clock;
-  pickups only extend it. The idle window is 90 s for mining and 60 s for slayer/Rift.
-  Boss fights hold the clock open. Manual pause freezes everything.
+* **Active time.** Two strong signals within three seconds start the clock. Using a mining
+  consumable can start it immediately. Pickups extend an active clock. The idle window is
+  60 seconds. Boss fights hold the clock open, and manual pause freezes it.
 * **Buckets.** `Mining` / `Slayer` / `Rift` are gated by area, so the same pickaxe swing in
   the Dwarven Mines and in the Spider's Den lands in different buckets.
 * **Slices.** Mining splits into `Mining` / `Nucleus` / `Corpse`, slayer into one bucket per
   slayer type. Corpse and Nucleus loot is read from the chat loot block, so chest contents
   never leak into the plain `Mining` number.
-* **No manual start.** The tracker opens itself when a bucket opens.
 
 ## Commands
 
@@ -50,13 +45,14 @@ garden are out of scope.
 | `/skbprofit types` | Chat menu of the slices for the current activity |
 | `/skbprofit slayer <type>` | Filter slayer by type (`all` to reset) |
 | `/skbprofit mining <type>` | Filter mining by slice (`all` to reset) |
+| `/skbprofit nucleustime <on\|off>` | Toggle the Nucleus timer in Crystal Hollows |
 | `/skbprofit pause` | Pause / resume counting |
-| `/skbprofit reset [total]` | Reset the current slice |
+| `/skbprofit reset [session\|total]` | Reset the selected slice after confirmation |
 | `/skbprofit loot [n]` | Dump the last loot entries the chat parser saw |
 | `/skbprofit debug` | Print bucket / area / price / click diagnostics |
 
-The overlay is clickable while an inventory or the chat is open: click a row's `[+]` `[-]`
-`[x]` to adjust it by hand, and use the buttons underneath to switch mode, pause or reset.
+Open inventory or chat to interact with the overlay. Select a slice to use the `[+]`, `[-]`, and
+`[x]` item controls. The buttons below switch modes, pause, or request a reset of the displayed view.
 
 ## Tests
 

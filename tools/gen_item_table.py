@@ -146,7 +146,7 @@ FIXED_BOOKS = [
     ("Enchanted Book (Smoldering VI)", "ENCHANTMENT_SMOLDERING_6"),
 ]
 
-ROW = re.compile(r"^\|\s*(.+?)\s*\|\s*`([^`]+)`\s*\|\s*(BZ|LBIN)\s*\|")
+ROW = re.compile(r"^\|\s*(.+?)\s*\|\s*`([^`]+)`\s*\|\s*(BZ|LBIN|ALPHA)\s*\|")
 
 NEU_ITEMS = ROOT / "data" / "neu_min" / "items"
 NEU_COLORS = ROOT / "data" / "neu_colors.json"
@@ -350,6 +350,7 @@ def main() -> int:
     OUT.write_text(
         json.dumps({"items": items}, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
     print(f"\nwrote {len(items)} items to {OUT.relative_to(ROOT)}")
     return 0

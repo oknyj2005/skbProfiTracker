@@ -8,6 +8,7 @@ import com.skbprofitracker.tracker.BucketLedger
 import com.skbprofitracker.tracker.ProfitOverlay
 import com.skbprofitracker.tracker.CostLedger
 import com.skbprofitracker.tracker.LootLog
+import com.skbprofitracker.tracker.ResetTarget
 import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.utils.ChatUtils
 import com.skbprofitracker.utils.CommonUtils
@@ -27,8 +28,10 @@ object SkbProfitCommand {
     /** How long a reset stays armed after the first call. */
     private const val RESET_CONFIRM_MS = 15_000L
 
-    private var resetArmedUntil = 0L
-    private var resetArmedScope: String? = null
+    private data class PendingReset(val target: ResetTarget, val id: Long, val expiresAt: Long)
+
+    private var pendingReset: PendingReset? = null
+    private var nextResetId = 0L
 
     fun init() {
         RegisterUtils.command(COMMAND_NAME) { args ->
@@ -38,7 +41,7 @@ object SkbProfitCommand {
                     ActivityBucket.isPaused = !ActivityBucket.isPaused
                     ChatUtils.sendLocalChat(statusLine(), true)
                 }
-                "reset" -> reset(args.getOrNull(1))
+                "reset" -> reset(args.getOrNull(1), args.getOrNull(2))
                 "types" -> printTypes()
                 "slayer" -> setFilter(Activity.SLAYER, args.drop(1).joinToString(" "))
                 "mining" -> setFilter(Activity.MINING, args.drop(1).joinToString(" "))
@@ -63,49 +66,57 @@ object SkbProfitCommand {
         }
     }
 
-    /**
-     * Resetting wipes data that is not recoverable, so the command asks once before doing it:
-     * the first call prints a clickable [Confirm], running it again within the window executes.
-     * Clicking the overlay button already needs two clicks, this is the chat side of the same rule.
-     */
-    /** Entry point for the overlay button: same flow as the command, including the chat confirm. */
-    fun requestReset(scope: String?) = reset(scope)
+    private fun reset(scope: String?, confirmationId: String?) {
+        if (scope.equals("confirm", ignoreCase = true)) {
+            val pending = pendingReset
+            if (pending != null && pending.id == confirmationId?.toLongOrNull() &&
+                System.currentTimeMillis() <= pending.expiresAt
+            ) {
+                confirmReset(pending)
+            } else {
+                ChatUtils.sendLocalChat("§eThis reset confirmation is no longer active.", true)
+            }
+            return
+        }
 
-    private fun reset(scope: String?) {
+        val mode = when (scope?.lowercase()) {
+            null, "session" -> TrackerViewMode.SESSION
+            "total" -> TrackerViewMode.TOTAL
+            else -> {
+                ChatUtils.sendLocalChat("§eUse /skbprofit reset [session|total].", true)
+                return
+            }
+        }
         val activity = ActivityBucket.current
         if (activity == null) {
             ChatUtils.sendLocalChat("§cNo activity is running right now.", true)
             return
         }
+        requestReset(ResetTarget(activity, BucketLedger.filterFor(activity), mode))
+    }
 
-        val total = scope.equals("total", ignoreCase = true)
+    fun requestReset(target: ResetTarget) {
         val now = System.currentTimeMillis()
-
-        if (now > resetArmedUntil || resetArmedScope != scope) {
-            resetArmedUntil = now + RESET_CONFIRM_MS
-            resetArmedScope = scope
-            ChatUtils.sendLocalChat(
-                "§eAbout to clear the §f${activity.bucketKey} ${if (total) "total" else "session"}§e. " +
-                    "§7This cannot be undone.",
-                true,
-            )
-            ChatUtils.sendLocalChatWithCommand(
-                "§a[Confirm] §7click here, or run §f/skbprofit reset${if (total) " total" else ""}§7 again within 15s.",
-                "skbprofit reset" + if (total) " total" else "",
-            )
+        val pending = pendingReset
+        if (pending != null && pending.target == target && now <= pending.expiresAt) {
+            confirmReset(pending)
             return
         }
 
-        resetArmedUntil = 0L
-        resetArmedScope = null
+        val request = PendingReset(target, ++nextResetId, now + RESET_CONFIRM_MS)
+        pendingReset = request
+        val sessionWarning = if (target.mode == TrackerViewMode.TOTAL) " The session will also be cleared." else ""
+        ChatUtils.sendLocalChat("§eAbout to clear §f${target.label}§e. §7This cannot be undone.$sessionWarning", true)
+        ChatUtils.sendLocalChatWithCommand(
+            "§a[Confirm] §7Clear §f${target.label} §7within 15s.",
+            "skbprofit reset confirm ${request.id}",
+        )
+    }
 
-        if (total) {
-            ActivityBucket.resetTotal(activity)
-            ChatUtils.sendLocalChat("§aReset the ${activity.bucketKey} total.", true)
-        } else {
-            ActivityBucket.resetSession(activity)
-            ChatUtils.sendLocalChat("§aReset the ${activity.bucketKey} session.", true)
-        }
+    private fun confirmReset(request: PendingReset) {
+        pendingReset = null
+        BucketLedger.reset(request.target)
+        ChatUtils.sendLocalChat("§aCleared ${request.target.label}.", true)
     }
 
     /**

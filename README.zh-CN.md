@@ -13,25 +13,21 @@
 
 ## 下载
 
-去 **[Releases](https://github.com/oknyj2005/skbProfiTracker/releases)** 下载 jar，丢进 `.minecraft/mods/` 即可。
-不需要登录 —— release 附件是公开的。
-
-## 状态
-
-`0.1.0` —— 首个公开版本。挖矿与 Slayer 已端到端可用；钓鱼、地牢、花园不在范围内。
+从 **[最新版发布页](https://github.com/oknyj2005/skbProfiTracker/releases/latest)** 下载 Mod JAR 和校验文件 `SHA256SUMS.txt`。
+将 JAR 与 Fabric API、Fabric Language Kotlin 一起放进 `.minecraft/mods/`。运行环境为
+Minecraft 26.2、Fabric Loader 0.18.1 或更高版本，以及 Java 25 或更高版本。
 
 ## 它是怎么算的
 
 * **算毛产出，不是净利润。** 数值 = `Σ 数量 × 当前价`。消耗品单独记为成本，主数字从不扣它们。
 * **价格永不落盘。** 只持久化数量和时长，每次重绘都按最新快照重新定价。取价顺序为
   Bazaar → 最低 BIN → NPC 收购价，并且 **NPC 价当地板**（市价低于 NPC 时按 NPC 算）。
-* **活跃时间。** 强信号（挖方块、打怪）启动计时，拾取只负责延长。挂机窗口挖矿 90 秒、
-  Slayer / Rift 60 秒；Boss 战期间保持计时；手动暂停则全部冻结。
+* **活跃时间。** 三秒内出现两次强信号即可开始计时，使用挖矿消耗品也可直接开始。
+  拾取会延长正在运行的计时，空闲窗口为 60 秒。Boss 战期间持续计时，手动暂停时冻结计时。
 * **活动桶。** `Mining` / `Slayer` / `Rift` 由区域决定，所以在 Dwarven Mines 和 Spider's Den
   敲同一镐，会落进不同的桶。
 * **切片。** 挖矿拆成 `Mining` / `Nucleus` / `Corpse`，Slayer 按类型各一个桶。尸体与 Nucleus 的
   产出从聊天战利品块读取，所以箱子里的东西不会混进普通的 `Mining` 数字。
-* **不需要手动开始。** 桶一开，面板自己出现。
 
 ## 命令
 
@@ -43,12 +39,14 @@
 | `/skbprofit types` | 在聊天栏列出当前活动的所有切片 |
 | `/skbprofit slayer <type>` | 按 Slayer 类型过滤（`all` 复位） |
 | `/skbprofit mining <type>` | 按挖矿切片过滤（`all` 复位） |
+| `/skbprofit nucleustime <on\|off>` | 开关 Crystal Hollows 内的 Nucleus 计时 |
 | `/skbprofit pause` | 暂停 / 继续计时 |
-| `/skbprofit reset [total]` | 重置当前切片 |
+| `/skbprofit reset [session\|total]` | 确认后重置所选切片 |
 | `/skbprofit loot [n]` | 打印聊天解析器最近读到的战利品 |
 | `/skbprofit debug` | 输出活动桶 / 区域 / 价格 / 点击诊断 |
 
-背包或聊天打开时面板可点击：点某行的 `[+]` `[-]` `[x]` 可以手动修正，下面的按钮用来切换模式、暂停、重置。
+打开背包或聊天后即可操作面板。选择单个切片后，可用 `[+]`、`[-]`、`[x]` 手动修正物品数量。
+下方按钮可切换模式、暂停计时，或发起当前视图的重置。
 
 ## 构建
 

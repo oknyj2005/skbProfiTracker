@@ -21,6 +21,11 @@ data class ItemLine(
     val value: Double,
 )
 
+data class ResetTarget(val activity: Activity, val filter: String, val mode: TrackerViewMode) {
+    val label: String
+        get() = "${activity.bucketKey} / $filter / ${mode.name.lowercase()}"
+}
+
 data class ProfitView(
     val activity: Activity,
     val mode: TrackerViewMode,
@@ -247,8 +252,19 @@ object BucketLedger {
         }
     }
 
-    fun add(activity: Activity, key: String, amount: Long) {
-        if (amount <= 0) return
+    class ItemCredit internal constructor(
+        internal val bucket: BucketData,
+        val key: String,
+        val amount: Long,
+        val atMs: Long,
+    ) {
+        internal var remaining = amount
+        internal val sessionRevision = bucket.sessionRevision
+        internal val totalRevision = bucket.totalRevision
+    }
+
+    fun add(activity: Activity, key: String, amount: Long): ItemCredit? {
+        if (amount <= 0) return null
 
         // Keys, gummi bears and the four mining consumables are payments, never loot. Mining never
         // yields them, so anything that reaches this path is a sack shuffle or a purchase, and
@@ -256,7 +272,7 @@ object BucketLedger {
         // 21.5M" was). Corpse loot still credits keys because it writes through addToMiningSlice.
         if (CostLedger.isCostOnly(key)) {
             Debug.decision("[gate] skip $key +$amount (cost item, not loot)")
-            return
+            return null
         }
 
         // Oil barrels are the one item we never could separate from "I moved a stack out of a
@@ -271,7 +287,7 @@ object BucketLedger {
             val fromChest = ActivityBucket.treasureChestRecently()
             if (!inHollows || !fromChest) {
                 Debug.decision("[gate] skip $key +$amount (hollows=$inHollows chest=$fromChest)")
-                return
+                return null
             }
         }
 
@@ -280,14 +296,16 @@ object BucketLedger {
             // Corpse and nucleus loot is booked from chat first; the same items then walk into the
             // inventory a tick later and must not be counted a second time as plain mining.
             remaining -= consumeCredit(key, amount)
-            if (remaining <= 0) return
+            if (remaining <= 0) return null
         }
 
         val bucket = storage(activity)
         bucket.sessionItems.merge(key, remaining, Long::plus)
         bucket.totalItems.merge(key, remaining, Long::plus)
-        if (activity == Activity.MINING) rememberMiningAdd(key, remaining)
+        val credit = ItemCredit(bucket, key, remaining, System.currentTimeMillis())
+        if (activity == Activity.MINING) rememberMiningAdd(credit)
         PersistentDataManager.saveSkbDataToFileAsync()
+        return credit
     }
 
     /**
@@ -310,7 +328,7 @@ object BucketLedger {
     private const val RECALL_MS = 5_000L
 
     private val credits = mutableMapOf<String, Credit>()
-    private val recentMiningAdds = ArrayDeque<Triple<String, Long, Long>>()
+    private val recentMiningAdds = ArrayDeque<ItemCredit>()
 
     /** Removes up to [amount] of a key that was already booked from chat, returns how many it took. */
     private fun consumeCredit(key: String, amount: Long): Long {
@@ -333,29 +351,42 @@ object BucketLedger {
         // count back out of plain mining before falling back to a voucher for future pickups.
         while (left > 0) {
             val index = recentMiningAdds.indexOfLast {
-                it.first == key && now - it.third <= RECALL_MS
+                it.key == key && it.remaining > 0L && now - it.atMs <= RECALL_MS
             }
             if (index < 0) break
-            val add = recentMiningAdds.removeAt(index)
-            val taken = minOf(left, add.second)
-            subtractFromPlainMining(key, taken)
-            left -= taken
+            left -= reverseCredit(recentMiningAdds[index], left)
+            if (recentMiningAdds[index].remaining == 0L) recentMiningAdds.removeAt(index)
         }
-        if (left > 0) credits[key] = Credit((credits[key]?.amount ?: 0) + left, now)
+        val carried = credits[key]?.takeIf { now - it.atMs <= CREDIT_TTL_MS }?.amount ?: 0L
+        if (left > 0) credits[key] = Credit(carried + left, now)
     }
 
-    private fun rememberMiningAdd(key: String, amount: Long) {
-        val now = System.currentTimeMillis()
-        recentMiningAdds.addLast(Triple(key, amount, now))
-        while (recentMiningAdds.isNotEmpty() && now - recentMiningAdds.first().third > RECALL_MS) {
+    private fun rememberMiningAdd(credit: ItemCredit) {
+        recentMiningAdds.addLast(credit)
+        while (recentMiningAdds.isNotEmpty() && credit.atMs - recentMiningAdds.first().atMs > RECALL_MS) {
             recentMiningAdds.removeFirst()
         }
     }
 
-    private fun subtractFromPlainMining(key: String, amount: Long) {
-        val bucket = subTypes(Activity.MINING)?.getOrPut(ActivityBucket.MINING_NORMAL) { BucketData() } ?: return
-        subtract(bucket.sessionItems, key, amount)
-        subtract(bucket.totalItems, key, amount)
+    /** Reverses the units accepted from a specific pickup, even if the visible slice changed. */
+    fun reverseCredit(credit: ItemCredit, amount: Long): Long {
+        val taken = minOf(credit.remaining, amount)
+        if (taken <= 0L) return 0L
+        val bucket = credit.bucket
+        if (bucket.sessionRevision == credit.sessionRevision) subtract(bucket.sessionItems, credit.key, taken)
+        if (bucket.totalRevision == credit.totalRevision) subtract(bucket.totalItems, credit.key, taken)
+        credit.remaining -= taken
+        PersistentDataManager.saveSkbDataToFileAsync()
+        return taken
+    }
+
+    /** Compaction replaces raw items counted in this session and in the same slice. */
+    fun subtractCompactionInput(bucket: BucketData, key: String, amount: Long) {
+        val taken = minOf(bucket.sessionItems[key] ?: 0L, amount)
+        if (taken <= 0L) return
+        subtract(bucket.sessionItems, key, taken)
+        subtract(bucket.totalItems, key, taken)
+        PersistentDataManager.saveSkbDataToFileAsync()
     }
 
     private fun subtract(items: MutableMap<String, Long>, key: String, amount: Long) {
@@ -541,26 +572,6 @@ object BucketLedger {
         }
     }
 
-    /** Removes up to [amount] of [key] from the visible range, e.g. a sack withdrawal. */
-    fun subtract(activity: Activity, key: String, amount: Long) {
-        var remaining = amount
-        val buckets = costBuckets(activity, filterFor(activity))
-            .sortedByDescending { itemsOf(it)[key] ?: 0L }
-
-        for (bucket in buckets) {
-            if (remaining <= 0) break
-            val items = itemsOf(bucket)
-            val have = items[key] ?: 0L
-            if (have <= 0L) continue
-
-            val take = minOf(have, remaining)
-            if (have - take <= 0L) items.remove(key) else items[key] = have - take
-            remaining -= take
-        }
-
-        PersistentDataManager.saveSkbDataToFileAsync()
-    }
-
     /**
      * The [x] button removes the number the row shows, not the key itself.
      *
@@ -588,32 +599,20 @@ object BucketLedger {
      */
     private fun editBuckets(activity: Activity): List<BucketData> = costBuckets(activity, filterFor(activity))
 
-    private fun itemsOf(bucket: BucketData): MutableMap<String, Long> = when (viewMode) {
-        TrackerViewMode.SESSION -> bucket.sessionItems
-        TrackerViewMode.TOTAL -> bucket.totalItems
-    }
-
-    /** The visible bucket that holds the most of [key], which is the one a +/- should change. */
-    private fun itemsHolding(activity: Activity, key: String): MutableMap<String, Long>? =
-        editBuckets(activity)
-            .map { itemsOf(it) }
-            .filter { (it[key] ?: 0L) > 0L }
-            .maxByOrNull { it[key] ?: 0L }
-
-    /** Clears the visible slice: one sub-type when filtered, everything when on [ALL]. */
-    fun reset(activity: Activity, total: Boolean) {
-        val buckets = costBuckets(activity, filterFor(activity))
-
-        for (bucket in buckets) {
-            if (total) {
+    fun reset(target: ResetTarget) {
+        for (bucket in costBuckets(target.activity, target.filter)) {
+            if (target.mode == TrackerViewMode.TOTAL) {
                 bucket.totalElapsedSeconds = 0
                 bucket.totalItems.clear()
                 bucket.totalCosts.clear()
                 bucket.totalCoinsSpent = 0.0
                 bucket.totalBosses = 0
                 bucket.totalCorpses = 0
+                bucket.totalCorpseTypes.clear()
+                bucket.totalRevision++
             }
             clearSession(bucket)
+            bucket.sessionRevision++
         }
         PersistentDataManager.saveSkbDataToFileAsync()
     }

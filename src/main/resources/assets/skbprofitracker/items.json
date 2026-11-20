@@ -389,6 +389,64 @@
       "color": "§f"
     },
     {
+      "name": "Enchanted Book (Butcher VI)",
+      "key": "ENCHANTMENT_BUTCHER_6",
+      "color": "§9"
+    },
+    {
+      "name": "Slayen't Ring",
+      "key": "SLAYENT_RING"
+    },
+    {
+      "name": "Bowl of Fresh Air",
+      "key": "BOWL_OF_FRESH_AIR"
+    },
+    {
+      "name": "Nature Spirit",
+      "key": "NATURE_SPIRIT"
+    },
+    {
+      "name": "Pointy Eye",
+      "key": "POINTY_EYE"
+    },
+    {
+      "name": "Packmaster Shard",
+      "key": "SHARD_PACKMASTER"
+    },
+    {
+      "name": "Ever Regenerating Heart",
+      "key": "EVER_REGENERATING_HEART"
+    },
+    {
+      "name": "Soul of the Omega",
+      "key": "SOUL_OF_THE_OMEGA"
+    },
+    {
+      "name": "Plasma Nucleus",
+      "key": "PLASMA_NUCLEUS",
+      "color": "§6"
+    },
+    {
+      "name": "Revenant Fragment",
+      "key": "REVENANT_FRAGMENT"
+    },
+    {
+      "name": "Tarantula Fragment",
+      "key": "TARANTULA_FRAGMENT"
+    },
+    {
+      "name": "Sven Fragment",
+      "key": "SVEN_FRAGMENT"
+    },
+    {
+      "name": "Voidgloom Fragment",
+      "key": "VOIDGLOOM_FRAGMENT"
+    },
+    {
+      "name": "Inferno Fragment",
+      "key": "INFERNO_FRAGMENT"
+    },
+    {
       "name": "Null Sphere",
       "key": "NULL_SPHERE",
       "color": "§a"

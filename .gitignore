@@ -1,5 +1,6 @@
 # Gradle
 .gradle/
+.kotlin/
 build/
 versions/*/build/
 versions/*/run/
@@ -27,6 +28,7 @@ desktop.ini
 data/*.json
 data/neu_min/
 tmp_*.json
+tmp_*.jar
 sh_tree.json
 *.log
 *.tmp

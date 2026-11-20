@@ -182,16 +182,15 @@ object CostLedger {
         // A potion is usually drunk in the Hub right after buying it, before the player warps
         // into the mines, so there is no active bucket yet. Mining consumables are mining-only,
         // so they are booked to the mining slice instead of being dropped.
-        val activity = ActivityBucket.bucketForPickup()
-            ?: if (key in MINING_CONSUMABLES) {
-                Activity.MINING
-            } else {
-                Debug.decision("[cost] dropped $key x$amount (no bucket)")
-                return
-            }
+        val miningConsumable = key in MINING_CONSUMABLES
+        val activity = if (miningConsumable) Activity.MINING else ActivityBucket.bucketForPickup()
+        if (activity == null) {
+            Debug.decision("[cost] dropped $key x$amount (no bucket)")
+            return
+        }
         val bucket = BucketLedger.storage(activity)
         Debug.decision("[cost] booked $key x$amount -> ${activity.name.lowercase()}")
-        if (key in MINING_CONSUMABLES) ActivityBucket.onExplicitStart(key)
+        if (miningConsumable) ActivityBucket.onExplicitMiningStart(key)
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
         PersistentDataManager.saveSkbDataToFileAsync()

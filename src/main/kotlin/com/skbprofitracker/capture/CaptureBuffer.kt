@@ -53,11 +53,19 @@ class CaptureBuffer(
         if (existing == null) compactionInputs[key] = Bucket(amount, now) else existing.amount += amount
     }
 
-    /** Takes up to [requested] raw units from the pool; returns how many were available. */
-    fun takeCompactionInput(key: String, requested: Int, now: Long): Int {
+    /** Keeps unmatched remainders in the pool until they can cover a whole product. */
+    fun takeCompactionInput(
+        key: String,
+        requested: Int,
+        now: Long,
+        unitsPerProduct: Int = 1,
+        alreadyMatched: Int = 0,
+    ): Int {
         purgeCompactionInputs(now)
         val existing = compactionInputs[key] ?: return 0
-        val used = minOf(existing.amount, requested)
+        val offered = minOf(existing.amount, requested)
+        val remainder = (offered.toLong() + alreadyMatched) % unitsPerProduct
+        val used = (offered - remainder).coerceAtLeast(0L).toInt()
         existing.amount -= used
         if (existing.amount <= 0) compactionInputs.remove(key)
         return used

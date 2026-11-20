@@ -10,8 +10,8 @@ import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.TabListAndScoreboardUtils
 import com.skbprofitracker.utils.WorldUtils
 import com.skbprofitracker.utils.getScreenCompat
+import com.skbprofitracker.utils.data.BucketData
 import com.skbprofitracker.utils.data.PersistentDataManager
-import com.skbprofitracker.utils.data.SkbData
 
 enum class Activity {
     MINING,
@@ -133,16 +133,18 @@ object ActivityBucket {
         RIFTSTALKER("Riftstalker Bloodfiend", setOf("Stillgore Château", "Stillgore Chateau")),
     }
 
-    /** Manual pause stops the timer and the ledger, as opposed to the automatic grace. */
-    private var pendingStartUntilMs = 0L
+    private data class PendingMiningStart(val source: String, val expiresAt: Long)
+
+    private var pendingMiningStart: PendingMiningStart? = null
     private const val PENDING_START_MS = 300_000L
 
+    /** Manual pause stops the timer and the ledger, as opposed to the automatic grace. */
     var isPaused: Boolean = false
         set(value) {
             field = value
             if (value) {
-                hasStrongSignal = false
-                recentStrongSignals.clear()
+                pendingMiningStart = null
+                clearSignals()
             }
         }
 
@@ -175,7 +177,6 @@ object ActivityBucket {
     var zone: String = ""
         private set
 
-    private var lastStrongMs = 0L
     /** Last time the player actually swung at or damaged a mob; purse gains are gated on it. */
     private var lastAttackMs = 0L
     private var lastSignalMs = 0L
@@ -233,26 +234,29 @@ object ActivityBucket {
      * Potions are usually drunk in the Hub straight after buying them, where no bucket exists yet,
      * so the request is parked and applied as soon as the player warps into a mining area.
      */
-    fun onExplicitStart(source: String) {
+    fun onExplicitMiningStart(source: String) {
         val now = System.currentTimeMillis()
+        if (current != Activity.MINING) {
+            pendingMiningStart = PendingMiningStart(source, now + PENDING_START_MS)
+            Debug.log("[signal] $source is waiting for a mining bucket")
+            return
+        }
+        startMiningClock(source, now)
+    }
+
+    private fun startMiningClock(source: String, now: Long) {
+        pendingMiningStart = null
         if (isPaused) {
             isPaused = false
             Debug.log("[signal] $source resumed the tracker")
         }
-        if (current == null) {
-            pendingStartUntilMs = now + PENDING_START_MS
-            Debug.log("[signal] $source is waiting for a bucket")
-            return
-        }
         hasStrongSignal = true
-        lastStrongMs = now
         lastSignalMs = now
         lastSignalSource = source
         Debug.log("[signal] $source started the timer")
     }
 
     fun onStrongSignal(source: String = "unknown") {
-        if (source == "attack") lastAttackMs = System.currentTimeMillis()
         val now = System.currentTimeMillis()
 
         // A GUI eats the click, so a destroy/attack packet while a screen is open cannot be real
@@ -263,6 +267,9 @@ object ActivityBucket {
             return
         }
 
+        val activity = current ?: return
+        if (source == "attack") lastAttackMs = now
+
         // Keep collecting even while paused: the burst check below needs them.
         recentStrongSignals.addLast(now)
         while (recentStrongSignals.isNotEmpty() && now - recentStrongSignals.first() > AUTO_RESUME_WINDOW_MS) {
@@ -272,7 +279,7 @@ object ActivityBucket {
         if (isPaused) {
             // Two things un-pause: starting to slay inside a running quest, or a sustained
             // burst of work. A single block or a mob on the way past must not undo a pause.
-            val slayerStarted = current == Activity.SLAYER && slayerQuest != null
+            val slayerStarted = activity == Activity.SLAYER && slayerQuest != null
             val sustained = recentStrongSignals.size >= AUTO_RESUME_SIGNALS
             if (!slayerStarted && !sustained) return
 
@@ -291,14 +298,12 @@ object ActivityBucket {
             }
             pendingStartCount++
             if (pendingStartCount < START_SIGNALS) {
-                lastStrongMs = now
                 lastSignalMs = now
                 Debug.log("[signal] armed by $source (one more to start)")
                 return
             }
         }
 
-        lastStrongMs = now
         lastSignalMs = now
         hasStrongSignal = true
         lastSignalSource = source
@@ -324,10 +329,7 @@ object ActivityBucket {
         val dz = pos.z - lastPosZ
         if (dx * dx + dy * dy + dz * dz > TELEPORT_SQR) {
             if (hasStrongSignal) Debug.log("[signal] reset (teleport)")
-            hasStrongSignal = false
-            lastSignalMs = 0L
-            pendingStartMs = 0L
-            pendingStartCount = 0
+            clearSignals()
         }
         lastPosX = pos.x
         lastPosY = pos.y
@@ -335,9 +337,10 @@ object ActivityBucket {
     }
 
     /** Pickups and taking damage: can extend a window but never open one. */
-    fun onWeakSignal() {
-        if (isPaused || !hasStrongSignal) return
-        lastSignalMs = System.currentTimeMillis()
+    fun onWeakSignal(activity: Activity) {
+        val now = System.currentTimeMillis()
+        if (isPaused || current != activity || !hasActiveSignal(activity, now)) return
+        lastSignalMs = now
     }
 
     /** The bucket a drop belongs to at this very moment, or null when nothing is running. */
@@ -364,20 +367,20 @@ object ActivityBucket {
         return current
     }
 
-    fun isCounting(): Boolean {
+    fun isCounting(now: Long = System.currentTimeMillis()): Boolean {
         if (isPaused) return false
         val activity = current ?: return false
-        return hasStrongSignal && System.currentTimeMillis() - lastSignalMs <= graceMs(activity)
+        // Crystal runs mostly involve moving and placing items, so their toggle drives the clock.
+        if (usesNucleusClock(activity)) return nucleusTimingEnabled()
+        return hasActiveSignal(activity, now)
     }
 
-    fun elapsedSeconds(activity: Activity): Long = data().bucket(activity.bucketKey).sessionElapsedSeconds
+    private fun hasActiveSignal(activity: Activity, now: Long): Boolean =
+        hasStrongSignal && now - lastSignalMs <= graceMs(activity)
 
-    fun resetSession(activity: Activity) {
-        BucketLedger.reset(activity, total = false)
-    }
-
-    fun resetTotal(activity: Activity) {
-        BucketLedger.reset(activity, total = true)
+    fun isCountingFor(activity: Activity, filter: String): Boolean {
+        if (current != activity || !isCounting()) return false
+        return filter == BucketLedger.ALL || filter == timingSlice(activity)
     }
 
     private fun onTick() {
@@ -388,17 +391,10 @@ object ActivityBucket {
         updateCurrent(now)
         recordBucket(now)
 
-        if (pendingStartUntilMs > 0L) {
-            if (current != null) {
-                hasStrongSignal = true
-                lastStrongMs = now
-                lastSignalMs = now
-                lastSignalSource = "parked potion"
-                pendingStartUntilMs = 0L
-                Debug.log("[signal] parked start applied")
-            } else if (now > pendingStartUntilMs) {
-                pendingStartUntilMs = 0L
-            }
+        val pending = pendingMiningStart
+        if (pending != null) {
+            if (now > pending.expiresAt) pendingMiningStart = null
+            else if (current == Activity.MINING) startMiningClock(pending.source, now)
         }
 
         // A boss fight is one continuous stretch of work even when no sword swing lands for a
@@ -411,18 +407,18 @@ object ActivityBucket {
             lastSignalMs = now
         }
 
-        val signature = "${current?.name}|${isCounting()}|$isPaused"
+        val signature = "${current?.name}|${isCounting(now)}|$isPaused"
         if (signature != lastStateSignature) {
             lastStateSignature = signature
             Debug.decision(
                 "[state] $signature world=$world zone=$zone signal=$lastSignalSource " +
-                    "elapsed=${current?.let { elapsedSeconds(it) } ?: 0}",
+                    "elapsed=${current?.let { timingStorage(it).sessionElapsedSeconds } ?: 0}",
             )
         }
 
         if (now - lastCountMs >= SECOND_MS) {
             lastCountMs = now
-            countSecond()
+            countSecond(now)
         }
     }
 
@@ -430,12 +426,20 @@ object ActivityBucket {
         current = null
         world = ""
         zone = ""
-        lastStrongMs = 0L
-        lastSignalMs = 0L
         closedAtMs = 0L
-        hasStrongSignal = false
         slayerQuest = null
         bossFight = false
+        hasPos = false
+        clearSignals()
+    }
+
+    private fun clearSignals() {
+        lastSignalMs = 0L
+        lastAttackMs = 0L
+        lastSignalSource = "none"
+        hasStrongSignal = false
+        pendingStartMs = 0L
+        pendingStartCount = 0
         recentStrongSignals.clear()
     }
 
@@ -530,15 +534,16 @@ object ActivityBucket {
         }
 
         if (resolved != null) {
+            if (current != resolved) clearSignals()
             current = resolved
             closedAtMs = now
             return
         }
 
-        val open = current ?: return
+        if (current == null) return
         if (now - closedAtMs > TAIL_MS) {
             current = null
-            hasStrongSignal = false
+            clearSignals()
         }
         // Else: inside the tail window, keep attributing to the closed bucket.
     }
@@ -555,31 +560,32 @@ object ActivityBucket {
 
     /** Crystal Hollows time is excluded unless the player opted in with `/skbprofit nucleustime`. */
     fun nucleusTimingEnabled(): Boolean =
-        com.skbprofitracker.utils.data.PersistentDataManager.skbprofitrackerData.nucleusTiming
+        PersistentDataManager.skbprofitrackerData.nucleusTiming
 
     fun setNucleusTiming(enabled: Boolean) {
-        com.skbprofitracker.utils.data.PersistentDataManager.skbprofitrackerData.nucleusTiming = enabled
-        com.skbprofitracker.utils.data.PersistentDataManager.saveSkbDataToFileAsync()
+        PersistentDataManager.skbprofitrackerData.nucleusTiming = enabled
+        PersistentDataManager.saveSkbDataToFileAsync()
     }
 
-    private fun countSecond() {
-        if (isPaused) return
+    private fun countSecond(now: Long) {
         val activity = current ?: return
-        if (activity == Activity.MINING && isCrystalHollowsArea()) {
-            // A crystal run is mostly running and placing items, so the toggle itself is the
-            // signal: when it is on, the clock runs without waiting for a mining swing.
-            if (!nucleusTimingEnabled()) return
-            val nucleus = BucketLedger.sliceStorage(activity, MINING_NUCLEUS)
-            nucleus.sessionElapsedSeconds += 1
-            nucleus.totalElapsedSeconds += 1
-            PersistentDataManager.saveSkbDataToFileAsync()
-            return
-        }
-        val bucket = BucketLedger.storage(activity)
+        if (!isCounting(now)) return
+
+        val bucket = timingStorage(activity)
         bucket.sessionElapsedSeconds += 1
         bucket.totalElapsedSeconds += 1
         PersistentDataManager.saveSkbDataToFileAsync()
     }
+
+    private fun usesNucleusClock(activity: Activity): Boolean =
+        activity == Activity.MINING && isCrystalHollowsArea()
+
+    private fun timingSlice(activity: Activity): String? =
+        if (usesNucleusClock(activity)) MINING_NUCLEUS else BucketLedger.liveType(activity)
+
+    private fun timingStorage(activity: Activity): BucketData =
+        timingSlice(activity)?.let { BucketLedger.sliceStorage(activity, it) }
+            ?: PersistentDataManager.skbprofitrackerData.bucket(activity.bucketKey)
 
     /**
      * Human readable state, used by `/skbprofit debug` to explain why a bucket did or did
@@ -620,5 +626,4 @@ object ActivityBucket {
     private fun ageSeconds(timestampMs: Long): Long =
         if (timestampMs == 0L) -1L else (System.currentTimeMillis() - timestampMs) / 1000
 
-    private fun data(): SkbData = PersistentDataManager.skbprofitrackerData
 }

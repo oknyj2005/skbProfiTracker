@@ -18,7 +18,7 @@
 > `SMITE;7` → `Severed Hand`（`SEVERED_HAND`），`ENDER_SLAYER;7` → `End Stone Idol`（`ENDSTONE_IDOL`）。
 > 书本身不再产出，只能 `/legacytrades` 兑换。
 
-## 统计
+## 统计（11 月 14 日正式服快照）
 
 | Slayer | 条目 | bazaar 可定价 | 其余（LBIN） |
 |---|---:|---:|---:|
@@ -120,6 +120,29 @@
 | Soul of the Alpha Shard | `SHARD_SOUL_OF_THE_ALPHA` | BZ | 16,463 |
 | Paragon Shard | `SHARD_PARAGON` | BZ | 1,650,090 |
 | Howling Spirit Shard | `SHARD_HOWLING_SPIRIT` | BZ | 1,015 |
+
+## 狼 Slayer V 和 Slayer Fragments（11 月 18 日 Alpha）
+
+> 掉落来源取自 [Hypixel Alpha 公告](https://hypixel.net/threads/november-18-sven-packmaster-tier-5-fishing-outpost-revamp-alpha-testing.6172091/) 和 [Alpha 实机掉落菜单及配方](https://www.youtube.com/watch?v=uCN-LYiMXsc&t=485s)。五种 Fragment 来自对应 Slayer 的小 Boss。
+> Alpha 掉落菜单确认 Butcher VI 和 Slayen't Ring 从 III 阶起掉，Bowl of Fresh Air 从 IV 阶起掉。
+> `ALPHA` 表示正式服快照中没有对应报价，运行时沿用 Bazaar → LBIN。普通掉落和五种 Fragment 的内部 ID 已按 Alpha 提示框直接核对。Butcher VI 采用附魔商品键 `ENCHANTMENT_BUTCHER_6`。Packmaster Shard 已出现在 Alpha Bazaar 的 Shards 分类，商品页没有显示价格键。其掉落提示框显示通用 ID `ATTRIBUTE_SHARD`，`SHARD_PACKMASTER` 仍是按同类商品命名预置的价格键。
+
+| 显示名（识别键） | 价格 key | 价格源 | 快照价 |
+|---|---|---|---:|
+| Enchanted Book (Butcher VI) | `ENCHANTMENT_BUTCHER_6` | ALPHA |  |
+| Slayen't Ring | `SLAYENT_RING` | ALPHA |  |
+| Bowl of Fresh Air | `BOWL_OF_FRESH_AIR` | ALPHA |  |
+| Nature Spirit | `NATURE_SPIRIT` | ALPHA |  |
+| Pointy Eye | `POINTY_EYE` | ALPHA |  |
+| Packmaster Shard | `SHARD_PACKMASTER` | ALPHA |  |
+| Ever Regenerating Heart | `EVER_REGENERATING_HEART` | ALPHA |  |
+| Soul of the Omega | `SOUL_OF_THE_OMEGA` | ALPHA |  |
+| Plasma Nucleus | `PLASMA_NUCLEUS` | LBIN |  |
+| Revenant Fragment | `REVENANT_FRAGMENT` | ALPHA |  |
+| Tarantula Fragment | `TARANTULA_FRAGMENT` | ALPHA |  |
+| Sven Fragment | `SVEN_FRAGMENT` | ALPHA |  |
+| Voidgloom Fragment | `VOIDGLOOM_FRAGMENT` | ALPHA |  |
+| Inferno Fragment | `INFERNO_FRAGMENT` | ALPHA |  |
 
 ## Voidgloom Seraph
 

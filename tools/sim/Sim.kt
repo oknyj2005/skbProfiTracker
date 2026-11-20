@@ -127,6 +127,13 @@ fun main() {
     }
     run {
         val buffer = CaptureBuffer()
+        buffer.noteCompactionInput("ROUGH_PERIDOT_GEM", 100, 0L)
+        check("only one complete product uses the pool", buffer.takeCompactionInput("ROUGH_PERIDOT_GEM", 160, 100L, 80), 80)
+        check("an incomplete product leaves the pool intact", buffer.takeCompactionInput("ROUGH_PERIDOT_GEM", 80, 200L, 80), 0)
+        check("current and earlier inputs complete a product", buffer.takeCompactionInput("ROUGH_PERIDOT_GEM", 20, 300L, 80, 60), 20)
+    }
+    run {
+        val buffer = CaptureBuffer()
         buffer.noteCompactionInput("TUNGSTEN", 6_880, 0L)
         check("pool entry expires after ten minutes", buffer.takeCompactionInput("TUNGSTEN", 6_880, 700_000L), 0)
     }

@@ -46,6 +46,7 @@ object ProfitOverlay {
     private val gui = SkbGui()
 
     private var lastBuildMs = 0L
+    private var resetTarget: ResetTarget? = null
     private var resetArmedAtMs = 0L
 
     /** Whether the slice picker is expanded inside the panel. */
@@ -60,7 +61,7 @@ object ProfitOverlay {
             .setSampleLines(
                 listOf(
                     "${WHITE}Mining profit tracker ${GRAY}[Session]",
-                    "${GRAY}- ${WHITE}12${GRAY}x ${AQUA}Flawed Sapphire Gemstone  ${GOLD}3.7k",
+                    "${GRAY}- ${WHITE}12${GRAY}x ${AQUA}Flawed Sapphire  ${GOLD}3.7k",
                     "${GRAY}- ${WHITE}4 601${GRAY}x ${WHITE}Rough Sapphire Gemstone  ${GOLD}2.3k",
                     "${AQUA}Profit: ${GOLD}18.2M ${GRAY}(${GOLD}24.1M${GRAY}/h)",
                     "${AQUA}Elapsed time: ${WHITE}2m 28s",
@@ -82,6 +83,7 @@ object ProfitOverlay {
             return
         }
 
+        val shownResetTarget = ResetTarget(view.activity, view.filter, view.mode)
         gui.setButtons(
             buildList {
                 add(GuiButton(0, "${GRAY}[Click to show ${WHITE}[${nextViewModeText(view.mode)}]${GRAY}]") {
@@ -97,7 +99,7 @@ object ProfitOverlay {
                         },
                     )
                 })
-                add(GuiButton(2, resetButtonText()) { onResetClicked(view.activity) })
+                add(GuiButton(2, resetButtonText(shownResetTarget)) { onResetClicked(shownResetTarget) })
                 if (view.activity == Activity.SLAYER || view.activity == Activity.MINING) {
                     add(GuiButton(3, filterButtonText(view.activity, view.filter)) {
                         selectorOpen = !selectorOpen
@@ -160,7 +162,7 @@ object ProfitOverlay {
         val others = priced.filterNot { it.key in shownKeys }
 
         if (visible.isNotEmpty()) {
-            val rows = visible.map { item -> row(item) }
+            val rows = visible.map { item -> row(view.activity, item) }
             val layout = Table.layout(SkbMod.mc.font, rows, " ")
             layout.rows.forEachIndexed { index, cells ->
                 lines.add(
@@ -259,23 +261,19 @@ object ProfitOverlay {
             lines.add(LineInfo("${AQUA}Corpses opened: ${WHITE}${comma(view.corpses)}$suffix"))
         }
 
-        // Three states are worth telling apart: paused by hand, frozen because nothing has
-        // happened for the grace period, and actually counting. Without the middle one the
-        // panel looks alive while the clock stands still.
-        val paused = when {
-            ActivityBucket.isPaused -> " ${GRAY}[Paused]"
-            !ActivityBucket.isCounting() -> " ${GRAY}[Idle]"
-            else -> ""
-        }
-        // Only the plain "Mining" slice measures a rate: it is the one that accumulates time and
-        // shows /h. All / Corpse / Nucleus are profit-only views, so a time line would be noise.
-        val hasTimedSlice = view.activity != Activity.MINING || view.filter == ActivityBucket.MINING_NORMAL
+        val hasTimedSlice = view.activity != Activity.MINING ||
+            view.filter == ActivityBucket.MINING_NORMAL || view.filter == ActivityBucket.MINING_NUCLEUS
         if (hasTimedSlice) {
+            val status = when {
+                ActivityBucket.isPaused -> " ${GRAY}[Paused]"
+                !ActivityBucket.isCountingFor(view.activity, view.filter) -> " ${GRAY}[Idle]"
+                else -> ""
+            }
             lines.add(
                 LineInfo(
                     "${AQUA}Elapsed time: ${WHITE}${
                         CommonUtils.formatTimeElapsed(view.elapsedSeconds.toInt())
-                    }$paused"
+                    }$status"
                 )
             )
         }
@@ -339,10 +337,17 @@ object ProfitOverlay {
 
     private fun comma(value: Long): String = DecimalFormat("#,##0").format(value)
 
-    private fun row(item: ItemLine): List<String> = listOf(
-        "${GRAY}- ${WHITE}${count(item.amount)}${GRAY}x ${ItemColors.get(item.key)}${item.name}",
-        "${GOLD}${coins(item.value)}",
-    )
+    private fun row(activity: Activity, item: ItemLine): List<String> {
+        val name = if (activity == Activity.MINING && item.key.startsWith("FLAWED_") && item.key.endsWith("_GEM")) {
+            item.name.removeSuffix(" Gemstone")
+        } else {
+            item.name
+        }
+        return listOf(
+            "${GRAY}- ${WHITE}${count(item.amount)}${GRAY}x ${ItemColors.get(item.key)}$name",
+            "${GOLD}${coins(item.value)}",
+        )
+    }
 
     /**
      * Editing is slice-local by design: `All` is a sum over slices, so a correction made there has
@@ -380,15 +385,11 @@ object ProfitOverlay {
         return "${GRAY}[Price: ${WHITE}$label${GRAY}]"
     }
 
-    /** The button clears the view that is on screen, so it says which one out loud: clicking
-     *  "reset" while Total is showing used to wipe the accumulated history by accident. */
-    /** The button only ever clears the session. The accumulated total can be wiped with
-     *  `/skbprofit reset total`, which asks for a confirmation in chat first. */
-    private fun resetButtonText(): String {
-        if (BucketLedger.viewMode == TrackerViewMode.TOTAL) {
+    private fun resetButtonText(target: ResetTarget): String {
+        if (target.mode == TrackerViewMode.TOTAL) {
             return "${GRAY}[Click to reset ${WHITE}Total${GRAY}]"
         }
-        val armed = System.currentTimeMillis() - resetArmedAtMs < RESET_CONFIRM_MS
+        val armed = resetTarget == target && System.currentTimeMillis() - resetArmedAtMs < RESET_CONFIRM_MS
         return if (armed) {
             "${GRAY}[${RED}Click again to clear ${WHITE}Session${GRAY}]"
         } else {
@@ -396,24 +397,23 @@ object ProfitOverlay {
         }
     }
 
-    private fun onResetClicked(activity: Activity) {
-        // Clearing the accumulated total is irreversible, so it always goes through the chat
-        // confirmation first: one click arms it, the [Confirm] line in chat carries it out.
-        if (BucketLedger.viewMode == TrackerViewMode.TOTAL) {
-            resetArmedAtMs = 0L
-            SkbProfitCommand.requestReset("total")
+    private fun onResetClicked(target: ResetTarget) {
+        if (target.mode == TrackerViewMode.TOTAL) {
+            resetTarget = null
+            SkbProfitCommand.requestReset(target)
             return
         }
 
         val now = System.currentTimeMillis()
-        if (now - resetArmedAtMs < RESET_CONFIRM_MS) {
-            ActivityBucket.resetSession(activity)
-            resetArmedAtMs = 0L
-            ChatUtils.sendLocalChat("${GRAY}Cleared session for ${WHITE}${activity.name.lowercase()}${GRAY}.")
+        if (resetTarget == target && now - resetArmedAtMs < RESET_CONFIRM_MS) {
+            resetTarget = null
+            BucketLedger.reset(target)
+            ChatUtils.sendLocalChat("${GRAY}Cleared ${WHITE}${target.label}${GRAY}.")
         } else {
+            resetTarget = target
             resetArmedAtMs = now
             ChatUtils.sendLocalChat(
-                "${GRAY}About to clear ${WHITE}Session${GRAY} for ${WHITE}${activity.name.lowercase()}${GRAY}. " +
+                "${GRAY}About to clear ${WHITE}${target.label}${GRAY}. " +
                     "Click again within 5s.",
             )
         }

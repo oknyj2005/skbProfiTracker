@@ -142,10 +142,9 @@ object SacksItemPickupPublisher {
             return 0
         }
 
-        val (_, left) = ScanRules.netAgainstDeposit(requested, deposit.amount)
-        val used = requested - left
+        val (fresh, left) = ScanRules.netAgainstDeposit(requested, deposit.amount)
         if (left <= 0) pendingDeposits.remove(key) else pendingDeposits[key] = Deposit(left, now)
-        return used
+        return requested - fresh
     }
 
     private fun onSackItems(items: List<SackPickup>, withdrawals: List<SackPickup>, windowMs: Long) {
@@ -157,6 +156,8 @@ object SacksItemPickupPublisher {
         // Attribute the batch to the bucket that was running when its window opened: a line
         // that arrives after flying to another island still belongs to the mining session.
         val activity = ActivityBucket.bucketAt(now - windowMs) ?: ActivityBucket.bucketForPickup() ?: return
+        val bucket = BucketLedger.storage(activity)
+        val poolPrefix = "${activity.bucketKey}/${BucketLedger.liveType(activity).orEmpty()}/${bucket.sessionRevision}/"
 
         val removed = withdrawals
             .mapNotNull { pickup ->
@@ -186,19 +187,15 @@ object SacksItemPickupPublisher {
             val fresh = net - takeManualDeposit(entry.key, net)
             if (fresh <= 0) continue
 
-            // The raw half of this compaction may have been reported in an earlier line.
-            val replaced = consumePool(activity, entry, fresh.toLong())
-            val credited = fresh - replaced
-            if (credited <= 0) continue
-
             // Go through the ledger so the item lands in the running slice and so corpse or
             // nucleus loot that went straight into a sack is not counted a second time.
-            Debug.trace("[sacks] credit +$credited ${entry.key} -> ${activity.name} (delta ${pickup.amount}, window ${windowMs}ms)")
-            BucketLedger.add(activity, entry.key, credited.toLong())
-            SackShadow.mark(entry.key, credited)
-            ActivityBucket.onWeakSignal()
+            val credit = BucketLedger.add(activity, entry.key, fresh.toLong())
+            SackShadow.mark(entry.key, fresh)
+            if (credit == null) continue
+            Debug.trace("[sacks] credit +${credit.amount} ${entry.key} -> ${activity.name} (delta ${pickup.amount}, window ${windowMs}ms)")
+            ActivityBucket.onWeakSignal(activity)
 
-            if (consumeCompaction(activity, entry, credited.toLong(), removed)) compactionHappened = true
+            if (offsetCompaction(credit, entry, removed, poolPrefix)) compactionHappened = true
         }
 
         for ((key, amount) in removed) {
@@ -206,7 +203,7 @@ object SacksItemPickupPublisher {
             // A leftover removal is either a stack the player pulled out, or the raw half of a
             // compaction whose product has not been reported yet. Neither may be counted again.
             if (compactionHappened && ItemTable.isCompactionParent(key)) {
-                InventoryItemPickupPublisher.noteCompactionInput(key, amount)
+                InventoryItemPickupPublisher.noteCompactionInput(poolPrefix + key, amount)
             } else {
                 InventoryItemPickupPublisher.noteWithdrawal(key, amount)
             }
@@ -218,52 +215,36 @@ object SacksItemPickupPublisher {
      * units were already credited when they reached the sack, so the removal cancels them
      * instead of the product being counted on top of the materials it replaced.
      */
-    private fun consumeCompaction(
-        activity: Activity,
+    private fun offsetCompaction(
+        credit: BucketLedger.ItemCredit,
         entry: ItemTable.Entry,
-        credited: Long,
         removed: MutableMap<String, Int>,
+        poolPrefix: String,
     ): Boolean {
         val parentName = entry.compactsFrom ?: return false
         val ratio = entry.compactRatio
         if (ratio <= 0) return false
 
         val parentKey = ItemTable.get(ItemUtils.getCleanItemName(parentName))?.key ?: return false
-        val available = removed[parentKey] ?: return false
-        val needed = minOf(available.toLong(), ratio * credited).toInt()
-        if (needed <= 0) return false
+        val wanted = ratio * credit.amount
+        val available = removed[parentKey] ?: 0
+        val direct = minOf(available.toLong(), wanted).toInt()
+        if (direct > 0) removed[parentKey] = available - direct
 
-        removed[parentKey] = available - needed
-        BucketLedger.subtract(activity, parentKey, needed.toLong())
-        Debug.decision("[sacks] compaction -$needed $parentKey for +$credited ${entry.key}")
-        return true
-    }
-
-    /**
-     * `+19 Fine Peridot` can arrive in a line that no longer contains `-1,520 Flawed Peridot`:
-     * the compactor reported the two halves separately. The material was credited when it went
-     * into the sack, so the product has to cancel it instead of being counted on top.
-     */
-    private fun consumePool(activity: Activity, entry: ItemTable.Entry, credited: Long): Int {
-        val parentName = entry.compactsFrom ?: return 0
-        val ratio = entry.compactRatio
-        if (ratio <= 0) return 0
-
-        val parentKey = ItemTable.get(ItemUtils.getCleanItemName(parentName))?.key ?: return 0
-        val wanted = ratio * credited
-        if (wanted <= 0 || wanted > Int.MAX_VALUE) return 0
-
-        val taken = InventoryItemPickupPublisher.takeCompactionInput(parentKey, wanted.toInt())
-        if (taken < ratio) {
-            // Cannot make a whole product from what is left, so put it back for the next line.
-            if (taken > 0) InventoryItemPickupPublisher.noteCompactionInput(parentKey, taken)
-            return 0
+        // Pair with this message first, then look for any remaining inputs from earlier batches.
+        val remaining = (wanted - direct).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val pooled = if (remaining > 0) {
+            InventoryItemPickupPublisher.takeCompactionInput(poolPrefix + parentKey, remaining, ratio, direct)
+        } else {
+            0
         }
 
-        val units = taken / ratio
-        BucketLedger.subtract(activity, parentKey, (units.toLong() * ratio))
-        Debug.decision("[sacks] pool -${units * ratio} $parentKey for +$units ${entry.key}")
-        return units
+        val consumed = direct.toLong() + pooled
+        if (consumed > 0) {
+            BucketLedger.subtractCompactionInput(credit.bucket, parentKey, consumed)
+            Debug.decision("[sacks] compaction -$consumed $parentKey for +${credit.amount} ${entry.key} ($pooled from pool)")
+        }
+        return direct > 0
     }
 
     /**

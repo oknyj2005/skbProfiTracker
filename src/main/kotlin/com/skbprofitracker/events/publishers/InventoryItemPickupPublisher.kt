@@ -398,63 +398,55 @@ object InventoryItemPickupPublisher {
         buffer.noteCompactionInput(key, amount, System.currentTimeMillis())
     }
 
-    fun takeCompactionInput(key: String, amount: Int): Int =
-        buffer.takeCompactionInput(key, amount, System.currentTimeMillis())
+    fun takeCompactionInput(key: String, amount: Int, unitsPerProduct: Int, alreadyMatched: Int): Int =
+        buffer.takeCompactionInput(key, amount, System.currentTimeMillis(), unitsPerProduct, alreadyMatched)
 
     /**
      * A stack that left the sack may already have been booked as loot a moment earlier: taking it
      * out puts it in the inventory, the scan sees `+N`, and the `[Sacks] -N` line arrives after.
      * Undoing that credit keeps "took it out and put it in a chest" from inflating the session.
      */
-    private data class RecentCredit(val amount: Long, val atMs: Long, val activity: Activity)
-
-    private val recentCredits = HashMap<String, RecentCredit>()
-    private val UNDO_WINDOW_MS = 15_000L
+    private val recentCredits = ArrayDeque<BucketLedger.ItemCredit>()
+    private const val UNDO_WINDOW_MS = 15_000L
 
     private fun undoRecentCredit(key: String, amount: Long): Long {
-        val credit = recentCredits[key] ?: return 0L
-        if (System.currentTimeMillis() - credit.atMs > UNDO_WINDOW_MS) {
-            recentCredits.remove(key)
-            return 0L
+        pruneRecentCredits(System.currentTimeMillis())
+        var remaining = amount
+        while (remaining > 0L) {
+            val index = recentCredits.indexOfLast { it.key == key && it.remaining > 0L }
+            if (index < 0) break
+            val credit = recentCredits[index]
+            remaining -= BucketLedger.reverseCredit(credit, remaining)
+            if (credit.remaining == 0L) recentCredits.removeAt(index)
         }
-        val take = minOf(credit.amount, amount)
-        if (take <= 0L) return 0L
+        val undone = amount - remaining
+        if (undone > 0L) Debug.decision("[sacks] undo +$undone $key (withdrawn right after it was credited)")
+        return undone
+    }
 
-        BucketLedger.subtract(credit.activity, key, take)
-        if (credit.amount - take <= 0L) {
-            recentCredits.remove(key)
-        } else {
-            recentCredits[key] = credit.copy(amount = credit.amount - take)
+    private fun pruneRecentCredits(now: Long) {
+        while (recentCredits.isNotEmpty() && now - recentCredits.first().atMs > UNDO_WINDOW_MS) {
+            recentCredits.removeFirst()
         }
-        Debug.decision("[sacks] undo +$take $key (withdrawn right after it was credited)")
-        return take
     }
 
     fun noteWithdrawal(key: String, amount: Int) {
         if (key.isBlank() || amount <= 0) return
 
-        val undone = undoRecentCredit(key, amount.toLong())
-        val afterUndo = amount - undone.toInt()
-        if (afterUndo <= 0) return
-
-        val now = System.currentTimeMillis()
-        // Whatever left the sack may be put back later; remember it so the matching `[Sacks] +N`
-        // line nets to zero instead of counting as freshly mined loot.
-        buffer.noteReturn(key, afterUndo, now)
-
-        val explained = buffer.takeSkipped(key, afterUndo)
+        val explained = buffer.takeSkipped(key, amount)
         if (explained > 0 && Debug.enabled) {
             Debug.log("[withdraw] $key -$explained was already ignored while the sacks screen was open")
         }
 
-        var remaining = amount - explained
-        if (remaining <= 0) return
-
-        val cancelled = buffer.cancelHold(key, remaining)
+        val cancelled = buffer.cancelHold(key, amount - explained)
         if (cancelled > 0) {
             if (Debug.enabled) Debug.log("[withdraw] $key -$cancelled cancelled a held pickup")
-            remaining -= cancelled
         }
+        val unexplained = amount - explained - cancelled
+        val undone = undoRecentCredit(key, unexplained.toLong()).toInt()
+        val remaining = unexplained - undone
+        // Stacks that were never booked can come back in a later sack message.
+        if (amount > undone) buffer.noteReturn(key, amount - undone, System.currentTimeMillis())
         if (remaining > 0 && Debug.enabled) {
             Debug.log("[withdraw] $key -$remaining had no matching pickup, ignored")
         }
@@ -512,10 +504,11 @@ object InventoryItemPickupPublisher {
         }
 
         val activity = ActivityBucket.bucketForPickup() ?: return
-        ActivityBucket.onWeakSignal()
+        ActivityBucket.onWeakSignal(activity)
 
-        BucketLedger.add(activity, key, amount.toLong())
-        recentCredits[key] = RecentCredit(amount.toLong(), System.currentTimeMillis(), activity)
+        val credit = BucketLedger.add(activity, key, amount.toLong()) ?: return
+        pruneRecentCredits(credit.atMs)
+        recentCredits.addLast(credit)
     }
 
     private fun shouldSkipPickup(): Boolean {

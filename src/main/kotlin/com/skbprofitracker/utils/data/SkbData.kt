@@ -63,4 +63,7 @@ data class BucketData(
     /** Same counters split by corpse type (lapis, umber, tungsten, vanguard). */
     val sessionCorpseTypes: MutableMap<String, Long> = mutableMapOf(),
     val totalCorpseTypes: MutableMap<String, Long> = mutableMapOf(),
-)
+) {
+    @Transient internal var sessionRevision = 0L
+    @Transient internal var totalRevision = 0L
+}

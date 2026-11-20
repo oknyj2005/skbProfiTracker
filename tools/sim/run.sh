@@ -11,7 +11,8 @@ COROUTINES=$(find "$HOME/.gradle/caches" -name "kotlinx-coroutines-core-jvm-1.10
 SCRIPT=$(find "$HOME/.gradle/caches" -name "kotlin-script-runtime-2.3.0.jar" -print -quit)
 DAEMON=$(find "$HOME/.gradle/caches" -name "kotlin-daemon-embeddable-2.3.0.jar" -print -quit)
 ANNOTATIONS=$(find "$HOME/.gradle/caches" -name "annotations-2*.jar" ! -name "*sources*" -print -quit)
-TOOLCP="$COMPILER;$STDLIB;$REFLECT;$COROUTINES;$SCRIPT;$DAEMON;$ANNOTATIONS"
+# Git Bash converts colon-separated POSIX classpaths to Windows classpaths for java.exe.
+TOOLCP="$COMPILER:$STDLIB:$REFLECT:$COROUTINES:$SCRIPT:$DAEMON:$ANNOTATIONS"
 OUT="build/sim"
 
 rm -rf "$OUT"
@@ -23,4 +24,4 @@ java -cp "$TOOLCP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
     src/main/kotlin/com/skbprofitracker/capture/CaptureBuffer.kt \
     tools/sim/Sim.kt
 
-java -cp "$OUT;$STDLIB" SimKt
+java -cp "$(pwd)/$OUT:$STDLIB" SimKt

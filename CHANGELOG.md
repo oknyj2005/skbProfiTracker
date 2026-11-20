@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.9
+
+### Added
+- Track Sven Packmaster Tier V drops and Slayer Fragments seen on Hypixel Alpha.
+- Show elapsed time in the Nucleus overlay. Enable the timer with `/skbprofit nucleustime on`.
+
+### Changed
+- Edit item quantities within an individual slice. The `All` view is read-only, and `[x]` removes the quantity shown on the row.
+- Reset targets the selected activity, slice, and view. Chat confirmation keeps that target if you switch views.
+- Using a mining consumable can start the mining timer. The cost is recorded even if the mining bucket has yet to open.
+
+### Fixed
+- Sack deposits deduct only the matching quantity. Withdrawals reverse pickup credits in the original slice, even after switching views.
+- Sack compaction credits the finished item and offsets ingredients across messages within the same slice.
+- Moving a mining potion into an open container avoids a consumption charge. Duplicate potion signals are filtered within 2.5 seconds.
+- Timing and idle indicators follow the active slice, and stale signals are cleared when the activity changes.
+
 ## 0.1.8
 
 ### Fixed

@@ -21,20 +21,11 @@ Hypixel SkyBlock 的**产出价值统计** mod（Fabric，MC 26.2，纯客户端
 
 ---
 
-## 2. 当前状态（截至 2026-11-20）
+## 2. 发布
 
-| 项 | 值 |
-|---|---|
-| 仓库 | `https://github.com/oknyj2005/skbProfiTracker`（public，main） |
-| 已发布 | **v0.1.8**（release 附件 608,184 B + `SHA256SUMS.txt`） |
-| 本地 HEAD | `3c7e58c`，**领先 origin/main 9 个提交**（都未发版） |
-| 本地构建 | `build/versions/skbProfiTracker-0.1.8+26.2-fabric.jar` = 614,681 B，sha256 `7255fe4d…` |
-| 客户端 mods | `<客户端版本目录>/mods/skbProfiTracker-0.1.8+26.2-fabric.jar`（同一份） |
-| 工作区 | 干净（`git status` 无输出） |
+当前版本见 [GitHub Releases](https://github.com/oknyj2005/skbProfiTracker/releases/latest)，变更记录见 [CHANGELOG.md](../CHANGELOG.md)。
 
-**未发版的 9 个提交**（按时间）：`e22238a` X 按数量删 · `dbc3efb` All 只读 · `f8c6af0` Nucleus 开关驱动秒表 · `e94cc34` 无桶也记挖矿药水 · `dbe1a06` 喝药=显式开始 · `fbd5570` 重置按钮跟视图 + state 带信号源 · `5856b81` 药水消失即扣 + `[cost]` 日志 · `aefebb4` 放进容器不扣 · `3c7e58c` 去重窗口 5s→2.5s。
-
-发版只需要：用户说一声 → `mod.version` 改 0.1.9 → 提交 → `git tag -a v0.1.9` → 推 `main` + tag。
+收到发版指令后，更新 `gradle.properties` 中的 `mod.version` 和 `CHANGELOG.md`。构建成功且离线模拟检查通过后，提交变更、创建对应的 `v` 开头标签，并推送 `main` 和标签。GitHub Actions 会构建并发布 JAR 和 `SHA256SUMS.txt`。
 
 ---
 
@@ -56,7 +47,7 @@ cd <仓库目录>
 java -jar gradle/wrapper/gradle-wrapper.jar :26.2-fabric:build --console=plain --no-daemon -q
 ```
 
-约 15–30 秒。构建卡死（10 分钟无输出）时：`taskkill -F -IM java.exe` → `rm -rf .gradle versions/26.2-fabric/.gradle versions/26.2-fabric/build` → 重跑。
+Windows 上若 Gradle 报 `Unable to establish loopback connection`，可用 JVM 参数 `-Djdk.net.unixdomain.tmpdir` 将套接字临时目录指向一个已存在的短路径，再重试构建。
 
 **部署**（唯一正确姿势）：
 
@@ -65,11 +56,11 @@ bash tools/deploy.sh          # 等客户端退出 → 跑 sim → 装进 mods �
 WAIT_SECONDS=7200 bash tools/deploy.sh &   # 后台排队
 ```
 
-`deploy.sh` 会做三件事，缺一不可：跑 `tools/sim/run.sh`（39 条纯函数检查）、编译产物比源码新（防装旧包）、拷贝后打印条目数/sha256。
+`deploy.sh` 运行 `tools/sim/run.sh`，确认产物比源码新，并在拷贝后打印条目数和 SHA-256。
 
 **绝对不要**在游戏运行时手工 `cp` jar —— Fabric 持有 zip 句柄，覆盖后类加载失败，会掉线（已踩过）。
 
-**检查**：`bash tools/sim/run.sh` → `ALL 39 CHECKS PASSED`。
+运行 `bash tools/sim/run.sh` 检查采集规则和在途记账。
 
 ---
 
@@ -145,7 +136,7 @@ src/main/kotlin/com/skbprofitracker/
 
 ## 7. 数据与表
 
-- `src/main/resources/assets/skbprofitracker/items.json`（**301 条**，构建产物的一部分）由 `tools/gen_item_table.py` 生成：SH slayer 物品清单 + 挖矿/宝石/矿脉/精华/消耗品内联表 + `data/neu_min`（NEU 显示名与颜色）+ `data/bz.json`（校验 key、取 NPC 价）。
+- `src/main/resources/assets/skbprofitracker/items.json` 随构建产物发布，由 `tools/gen_item_table.py` 生成。输入包括 SH Slayer 物品清单、挖矿与消耗品内联表、`data/neu_min` 的显示名与颜色，以及 `data/bz.json` 的价格键与 NPC 价。
 - 新增物品的流程：改生成器里的清单 → `python tools/gen_item_table.py` → 看它打印的"非 bazaar key"是否合理 → `bash tools/sim/run.sh` → 构建 → 部署。
 - 历史价格快照/NEU 仓库/SkyHanni 参考源码都在 `data/`、`reference/`（**已 gitignore，只在本地**）。换机器要重新拉，`tools/` 里的脚本都有说明。
 
@@ -153,7 +144,7 @@ src/main/kotlin/com/skbprofitracker/
 
 ## 8. 待办（按优先级）
 
-1. **验证未发版的 9 个提交**：X 按数量删、All 只读、Nucleus 秒表、药水成本与显式开始、重置按钮跟视图。
+1. **游戏内回归检查**。验证切片物品编辑、`All` 只读、Nucleus 秒表、挖矿药水成本与开表，以及重置确认的目标。
 2. **Nucleus 完整跑一次**：开关打开 → 放水晶 → 开宝箱 → 关开关，看 `Nucleus` 切片的利润与时间是否合理。
 3. **essence 精度**：`EssenceWatcher` 1.5 秒内同数量会被压掉一次（与 Feesh 一致），如果实测漏得多再改成"每次 action bar 变化都记"。
 4. **`RemovalBook` 重构**（可选）：现在有五套抵扣机制（移除信用 / 借出返还 / 跳过取出 / 挂起增量 / 压缩池），语义重叠，长期应该合成一个"物品借还账本"。
@@ -166,8 +157,8 @@ src/main/kotlin/com/skbprofitracker/
 
 ```bash
 cd <仓库目录>
-git log --oneline -12          # 看这 9 个未发版提交
-bash tools/sim/run.sh          # 39 条应全绿
+git log --oneline -12          # 查看近期变更
+bash tools/sim/run.sh          # 运行离线检查
 java -jar gradle/wrapper/gradle-wrapper.jar :26.2-fabric:build --console=plain --no-daemon -q
 bash tools/deploy.sh           # 客户端关着会直接装
 ```
