@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.10
+
+### English
+
+- The **HUD** supports scrolling through item rows and hovering over costs for a breakdown. Gemstone names are shorter, and tracker chat messages carry a coin icon.
+- **HUD controls and commands** share slice selection, view and price modes, pause, and Nucleus timing. The HUD consumes clicks on visible controls before they reach inventory slots. Item edits stay in the displayed slice. Total resets require chat confirmation for the original activity and slice.
+- **Mining time** carries across Dwarven Mines and Glacite Mineshaft transfers. Confirmed transfer time counts up to the original 60-second grace deadline.
+- **Mining consumables** are charged after a server inventory update confirms use in the main hand or offhand.
+- **Manual pause** now also stops Sack batches, Corpse and Nucleus chat loot, and Slayer completion counters from updating the ledger.
+- The **HUD reuses text measurements and placements** between updates. Activity, purse, and region checks share one sidebar snapshot per tick. Inventory scans read the relevant item data fields and lore lines.
+
+### 简体中文
+
+- **面板**支持滚动查看物品明细，悬停成本行可查看分项。宝石名称更短，追踪器的聊天消息新增金币图标。
+- **面板和命令**共用切片、视图、价档、暂停和 Nucleus 计时规则。面板先处理命中控件的点击，再由背包处理其余点击。物品修正绑定显示的切片，Total 重置需在聊天栏确认原活动和切片。
+- **挖矿计时**会在矮人矿区与冰洞往返时接续原有的 60 秒窗口。确认换服后，会补记原截止点之前的加载时间。
+- **挖矿消耗品**在服务器背包更新确认主手或副手已使用后记成本。
+- **手动暂停**期间，Sacks、尸体和 Nucleus 的聊天战利品，以及 Slayer 完成计数都会停止入账。
+- **面板复用文字测宽和位置**。活动、钱包和区域判断共用每 tick 的计分板快照，背包扫描只解析所需的物品数据字段和说明行。
+
 ## 0.1.9
 
 ### Added

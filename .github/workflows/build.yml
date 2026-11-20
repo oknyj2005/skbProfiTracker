@@ -42,10 +42,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_notes=$(mktemp)
+          awk -v heading="## ${GITHUB_REF_NAME#v}" '
+            $0 == heading { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > "$release_notes"
+          notes_args=(--generate-notes)
+          if [[ -s "$release_notes" ]]; then
+            notes_args=(--notes-file "$release_notes")
+          fi
           cd build/versions
           sha256sum *.jar > SHA256SUMS.txt
           cat SHA256SUMS.txt
           gh release create "${GITHUB_REF_NAME}" \
             ./*.jar SHA256SUMS.txt \
             --title "skbProfiTracker ${GITHUB_REF_NAME}" \
-            --generate-notes
+            --verify-tag "${notes_args[@]}"

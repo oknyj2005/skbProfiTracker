@@ -1,84 +1,72 @@
 # skbProfiTracker
 
-[English](README.md) | **简体中文**
+[English](README.md) · **简体中文**
 
-一个客户端 Fabric mod，只为回答 **Hypixel SkyBlock** 里的一个问题：
+适用于 **Minecraft 26.2** 的 Hypixel SkyBlock 客户端 Fabric Mod，记录挖矿和 Slayer（含 Rift）的掉落、实际成本与活跃时间。
 
-> 我现在干的这件事，每小时值多少钱？
+## 安装
 
-它盯着进入背包（以及 Sacks）的东西，按 Bazaar / 拍卖行的价格估值，再除以**活跃时间** ——
-所以挂机、跑图、整理背包的时候，这个数字不会虚高。
+从 [GitHub Releases](https://github.com/oknyj2005/skbProfiTracker/releases/latest) 下载 JAR。每次发布都附带 `SHA256SUMS.txt`，可用于核对下载文件。
 
-目前覆盖 **挖矿** 和 **Slayer**（含 Rift），版本 **Minecraft 26.2**。
+将 JAR 和适用于 Minecraft 26.2 的 **Fabric API**、**Fabric Language Kotlin** 放进对应客户端的 `mods` 目录。需要 **Fabric Loader 0.18.1 或更高版本**以及 **Java 25 或更高版本**。
 
-## 下载
+## 数字怎么算
 
-从 **[最新版发布页](https://github.com/oknyj2005/skbProfiTracker/releases/latest)** 下载 Mod JAR 和校验文件 `SHA256SUMS.txt`。
-将 JAR 与 Fabric API、Fabric Language Kotlin 一起放进 `.minecraft/mods/`。运行环境为
-Minecraft 26.2、Fabric Loader 0.18.1 或更高版本，以及 Java 25 或更高版本。
+- **Profit** 显示已记录的掉落和金币按当前价格折算的价值。有可估价的成本时，面板会显示 **Costs** 和 **Net profit**。在背包中悬停成本行可查看明细。
+- 市价先按设定取 Bazaar 的**即时卖出**或**挂单卖出**价，再查拍卖行最低 BIN。NPC 收购价作为下限。存档记录数量、时间和实际金币数，历史掉落也按最新快照估值。
+- **Session** 对应本次游戏启动，**Total** 跨启动累计。挖矿分为 Mining、Corpse 和 Nucleus。Slayer 按 Boss 类型分开，Rift 单独统计。
+- 活跃计时有 **60 秒宽限**。三秒内收到两次挖掘或攻击等强信号即可开表，确认使用挖矿消耗品也能直接启动 Mining。拾取可以延长已开启的计时。确认在矮人矿区与冰洞之间换服后，会接上原本剩余的宽限。
+- 想记录 Crystal Hollows 的 Nucleus 用时，可以在面板中开启，也可以运行 `/skbprofit nucleustime on`。
 
-## 它是怎么算的
+## 面板操作
 
-* **算毛产出，不是净利润。** 数值 = `Σ 数量 × 当前价`。消耗品单独记为成本，主数字从不扣它们。
-* **价格永不落盘。** 只持久化数量和时长，每次重绘都按最新快照重新定价。取价顺序为
-  Bazaar → 最低 BIN → NPC 收购价，并且 **NPC 价当地板**（市价低于 NPC 时按 NPC 算）。
-* **活跃时间。** 三秒内出现两次强信号即可开始计时，使用挖矿消耗品也可直接开始。
-  拾取会延长正在运行的计时，空闲窗口为 60 秒。Boss 战期间持续计时，手动暂停时冻结计时。
-* **活动桶。** `Mining` / `Slayer` / `Rift` 由区域决定，所以在 Dwarven Mines 和 Spider's Den
-  敲同一镐，会落进不同的桶。
-* **切片。** 挖矿拆成 `Mining` / `Nucleus` / `Corpse`，Slayer 按类型各一个桶。尸体与 Nucleus 的
-  产出从聊天战利品块读取，所以箱子里的东西不会混进普通的 `Mining` 数字。
+打开背包或聊天即可切换视图、选择切片、暂停，也可以点击价格标签换价档。物品明细一次显示最多 10 行，鼠标放在列表上滚动可以翻看后续条目。
+
+在背包里选中单个切片后，悬停物品行可用 **[+]**、**[-]**、**[x]**。修正会作用于该切片的 Session 和 Total，**[x]** 扣除行上显示的数量。**All** 汇总各切片，物品行只读。
+
+Session 重置要在同一按钮上点两次。Total 重置需要在聊天栏确认，切换视图后仍会按最初所选的活动和切片执行。重置 Total 也会清空该目标的 Session。
 
 ## 命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `/skbprofit gui` | 移动 / 缩放面板 |
-| `/skbprofit mode [session\|total]` | 切换显示模式 |
-| `/skbprofit price [offer\|insta]` | 切换价格档 |
-| `/skbprofit types` | 在聊天栏列出当前活动的所有切片 |
-| `/skbprofit slayer <type>` | 按 Slayer 类型过滤（`all` 复位） |
-| `/skbprofit mining <type>` | 按挖矿切片过滤（`all` 复位） |
-| `/skbprofit nucleustime <on\|off>` | 开关 Crystal Hollows 内的 Nucleus 计时 |
-| `/skbprofit pause` | 暂停 / 继续计时 |
-| `/skbprofit reset [session\|total]` | 确认后重置所选切片 |
-| `/skbprofit loot [n]` | 打印聊天解析器最近读到的战利品 |
-| `/skbprofit debug` | 输出活动桶 / 区域 / 价格 / 点击诊断 |
+| `/skbprofit` | 查看当前追踪状态 |
+| `/skbprofit gui` | 移动、缩放或对齐面板 |
+| `/skbprofit mode [session\|total]` | 切换显示视图 |
+| `/skbprofit price [insta\|offer]` | 切换 Bazaar 价档 |
+| `/skbprofit types` | 在聊天栏列出当前活动的切片 |
+| `/skbprofit mining [slice]` | 列出或切换挖矿切片，`all` 为汇总 |
+| `/skbprofit slayer [type]` | 列出或切换 Slayer 类型，`all` 为汇总 |
+| `/skbprofit nucleustime [on\|off]` | 开关 Nucleus 计时 |
+| `/skbprofit pause` | 暂停或继续追踪 |
+| `/skbprofit reset [session\|total]` | 发起所选活动和切片的重置 |
+| `/skbprofit costs` | 在聊天栏查看成本明细 |
+| `/skbprofit loot [n]` | 查看最近的聊天战利品记录 |
+| `/skbprofit debug` | 开关诊断并显示追踪状态和已加载版本 |
 
-打开背包或聊天后即可操作面板。选择单个切片后，可用 `[+]`、`[-]`、`[x]` 手动修正物品数量。
-下方按钮可切换模式、暂停计时，或发起当前视图的重置。
+## 0.1.10 更新摘要
 
-## 构建
+- 物品明细支持滚动，成本行支持悬停查看，面板与命令共用操作规则。
+- 冰洞往返接续挖矿计时，消耗品按服务器确认的使用事件记成本。
+- 缓存面板文字布局，每 tick 共用一份计分板快照，减少背包扫描的解析开销。
 
-需要 **JDK 25**（Minecraft 26.x 的 class 文件是 major version 69）。
+完整变更见[更新日志](CHANGELOG.md)。
+
+## 构建与测试
+
+使用 **JDK 25** 构建。
 
 ```bash
-./gradlew :26.2-fabric:build      # macOS / Linux
-gradlew.bat :26.2-fabric:build    # Windows
+./gradlew :26.2-fabric:build
+bash tools/sim/run.sh
 ```
 
-产物在 `build/versions/`，丢进 `.minecraft/mods/` 即可。
+Windows 下可在 PowerShell 执行 `.\gradlew.bat :26.2-fabric:build`，离线检查用 Git Bash 运行。JAR 产物位于 `build/versions/`。离线检查覆盖物品采集、消耗品确认、冰洞往返计时和面板操作。
 
-## 仓库结构
+开发资料见[交接文档](docs/HANDOVER.md)、[采集流程](docs/CAPTURE_PIPELINE.md)和 [Slayer 掉落表](docs/SLAYER_TABLE.md)。
 
-```
-src/main/kotlin/…        mod 源码（Fabric + Kotlin）
-src/main/java/…          mixin
-src/main/resources/      fabric.mod.json、mixin 配置、资源（物品表）
-versions/26.2-fabric/    按版本划分的 Gradle 模块
-docs/                    设计笔记与生成的物品表
-tools/                   物品表生成器与抓取脚本
-```
+## 致谢与许可
 
-`data/`（价格与 NEU 快照）和 `reference/`（逆向时参考的第三方源码）只在本地保留，已加入 gitignore。
+架构与面板框架派生自 [Feesh](https://github.com/Sleepy-Panda/Feesh)。掉落与物品资料参考 SkyHanni 和 NotEnoughUpdates。市价来自 Hypixel Bazaar API 与 EliteSkyBlock 拍卖 API。
 
-## 致谢
-
-* 架构与 UI 框架派生自 **[Feesh](https://github.com/Sleepy-Panda/Feesh)**（Apache-2.0）—— 见 [`NOTICE`](NOTICE)。
-* Slayer 掉落清单与 **SkyHanni** 仓库常量交叉核对。
-* 显示名来自 **NotEnoughUpdates** 物品仓库。
-* 价格数据：Hypixel Bazaar API 与 EliteSkyBlock 拍卖 API。
-
-## 许可
-
-Apache License 2.0 —— 见 [`LICENSE`](LICENSE)。
+采用 [Apache License 2.0](LICENSE)，归属说明见 [NOTICE](NOTICE)。

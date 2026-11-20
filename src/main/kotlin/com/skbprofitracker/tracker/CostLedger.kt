@@ -18,16 +18,14 @@ data class CostView(
     val totalValue: Double,
     val perHour: Double,
     val lines: List<CostLine>,
+    val coinsSpent: Double,
 )
 
 /**
  * The spending side of a bucket.
  *
- * Everything the player pays for while an activity is open is booked here: consumables are
- * detected as inventory decreases of a whitelisted id (a gummy bear disappears from the
- * hotbar when it is eaten), while coin costs come from the purse watcher, because the real
- * deduction already includes shard, mayor and slayer tier modifiers and a hardcoded table
- * would be wrong the moment one of them changes.
+ * Mining consumables come from confirmed uses. Other item costs come from inventory decreases
+ * or loot events, and coin costs come from the purse watcher.
  */
 object CostLedger {
     /**
@@ -41,9 +39,8 @@ object CostLedger {
     private val lastCostAt = mutableMapOf<String, Long>()
 
     /**
-     * Potion-like consumables are player heads, so right clicking one makes the client predict a
-     * block placement first: the stack goes 1 -> 0, the server rejects it, the stack comes back
-     * 0 -> 1 and the real consumption then goes 1 -> 0 again. Two removals, one potion.
+     * The gummy bear still uses inventory diffs, which can include both local placement
+     * prediction and the server's actual consumption.
      */
     private const val CONSUMABLE_DEDUPE_MS = 2_500L
 
@@ -137,26 +134,21 @@ object CostLedger {
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
-    /** Mining potions are drunk, never deposited, so a disappearance is always a cost. */
     fun isMiningConsumable(key: String): Boolean = key in MINING_CONSUMABLES
 
     /** True when the key is something this ledger would ever charge. */
     fun isCostKey(key: String): Boolean = key in COST_KEYS || key in NUCLEUS_MATERIAL_KEYS
 
     fun onItemRemoved(key: String, amount: Int) {
-        if (amount <= 0) return
-        if (key !in COST_KEYS && key !in NUCLEUS_MATERIAL_KEYS) return
+        if (amount <= 0 || !isCostKey(key) || isMiningConsumable(key)) return
         // Corpse keys are charged in [onCorpseOpened] instead: the key vanishes in the same
         // breath as the loot arrives and the corpse UI can swallow the inventory diff, which
         // is how three opened corpses once produced only two key costs.
         if (key in CORPSE_COST_KEYS) return
 
-        // A consumed item can flicker out of the inventory and come back while the server
-        // confirms the use, and the scan then books the same removal twice (one Fiesta Flask
-        // was once charged 5M instead of 2.5M). Nothing can be consumed twice within two
-        // seconds, so a repeat of the same key inside that window is noise.
+        // A locally predicted removal can appear twice while the server confirms it.
         val now = System.currentTimeMillis()
-        val window = if (key in MINING_CONSUMABLES || key == "REHEATED_GUMMY_POLAR_BEAR") {
+        val window = if (key == "REHEATED_GUMMY_POLAR_BEAR") {
             CONSUMABLE_DEDUPE_MS
         } else {
             MATERIAL_DEDUPE_MS
@@ -179,18 +171,24 @@ object CostLedger {
             return
         }
 
-        // A potion is usually drunk in the Hub right after buying it, before the player warps
-        // into the mines, so there is no active bucket yet. Mining consumables are mining-only,
-        // so they are booked to the mining slice instead of being dropped.
-        val miningConsumable = key in MINING_CONSUMABLES
-        val activity = if (miningConsumable) Activity.MINING else ActivityBucket.bucketForPickup()
+        val activity = ActivityBucket.bucketForPickup()
         if (activity == null) {
             Debug.decision("[cost] dropped $key x$amount (no bucket)")
             return
         }
+        bookItemCost(activity, key, amount)
+    }
+
+    fun onMiningConsumableUsed(key: String, amount: Int) {
+        if (!isMiningConsumable(key) || amount <= 0) return
+        // The player may consume it in the Hub before warping to a mining area.
+        bookItemCost(Activity.MINING, key, amount)
+        ActivityBucket.onExplicitMiningStart(key)
+    }
+
+    private fun bookItemCost(activity: Activity, key: String, amount: Int) {
         val bucket = BucketLedger.storage(activity)
         Debug.decision("[cost] booked $key x$amount -> ${activity.name.lowercase()}")
-        if (miningConsumable) ActivityBucket.onExplicitMiningStart(key)
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
         PersistentDataManager.saveSkbDataToFileAsync()
@@ -301,7 +299,7 @@ object CostLedger {
         val total = lines.sumOf { it.value } + coins
         val hours = seconds / 3600.0
 
-        return CostView(total, if (hours > 0.0) total / hours else 0.0, lines)
+        return CostView(total, if (hours > 0.0) total / hours else 0.0, lines, coins)
     }
 
 }

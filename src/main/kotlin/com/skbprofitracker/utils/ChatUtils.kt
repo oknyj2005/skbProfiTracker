@@ -10,16 +10,24 @@ import net.minecraft.client.gui.components.ChatComponent
 import net.minecraft.network.chat.Style
 import net.minecraft.network.chat.TextColor
 import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.FontDescription
 import net.minecraft.network.chat.ClickEvent.OpenUrl
 import net.minecraft.network.chat.ClickEvent.RunCommand
 import net.minecraft.network.chat.HoverEvent.ShowText
 import net.minecraft.ChatFormatting
+import net.minecraft.resources.Identifier
 import java.util.*
 
 object ChatUtils {
-    private val MOD_NAME_COLORS = intArrayOf(0x158AB7, 0x52CC9D)
+    private val legacyFormatting = Regex("§.")
+    private val MOD_NAME_COLORS = intArrayOf(0x33ABAA, 0x52CC9D)
+    private val COIN_STYLE = Style.EMPTY
+        .withFont(FontDescription.Resource(Identifier.fromNamespaceAndPath(SkbMod.MOD_ID, "chat_icons")))
+        .withColor(ChatFormatting.WHITE)
     private val MOD_PREFIX: Component = Component.literal("${GRAY}[")
-        .append(ColorUtils.buildGradientTextComponent(" ${SkbMod.MOD_NAME}", MOD_NAME_COLORS))
+        .append(Component.literal("\uE000").setStyle(COIN_STYLE))
+        .append(" ")
+        .append(ColorUtils.buildGradientTextComponent(SkbMod.MOD_NAME, MOD_NAME_COLORS))
         .append(Component.literal("${GRAY}]"))
 
     private enum class ChatType { ALL_CHAT, PARTY_CHAT }
@@ -153,7 +161,7 @@ object ChatUtils {
 
     fun String?.removeFormatting(): String {
         if (this.isNullOrEmpty()) return ""
-        return this.replace(Regex("§."), "")
+        return if ('§' in this) this.replace(legacyFormatting, "") else this
     }
  
     /** 

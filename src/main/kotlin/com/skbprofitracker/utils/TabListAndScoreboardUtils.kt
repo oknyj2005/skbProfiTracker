@@ -2,6 +2,7 @@ package com.skbprofitracker.utils
 
 import com.skbprofitracker.SkbMod
 import com.skbprofitracker.utils.ChatUtils.getUnformattedString
+import net.minecraft.client.Minecraft
 import net.minecraft.client.multiplayer.PlayerInfo
 import net.minecraft.network.chat.Component
 import net.minecraft.world.scores.DisplaySlot
@@ -44,18 +45,17 @@ object TabListAndScoreboardUtils {
         return ""
     }
 
-    fun getUnformattedScoreboardLines(): List<String> {
-        val scoreboard = SkbMod.mc.level?.scoreboard ?: return emptyList()
+    fun getUnformattedScoreboardLines(client: Minecraft = SkbMod.mc): List<String> {
+        val scoreboard = client.level?.scoreboard ?: return emptyList()
         val objective = scoreboard.getDisplayObjective(DisplaySlot.SIDEBAR) ?: return emptyList()
 
-        val lines = scoreboard.listPlayerScores(objective)
-            .filter { entry -> !entry.isHidden }
-            .map { entry ->
+        return buildList {
+            for (entry in scoreboard.listPlayerScores(objective)) {
+                if (entry.isHidden) continue
                 val team = scoreboard.getPlayersTeam(entry.owner)
-                PlayerTeam.formatNameForTeam(team, entry.ownerName()).getUnformattedString()
+                add(PlayerTeam.formatNameForTeam(team, entry.ownerName()).getUnformattedString())
             }
-
-        return lines
+        }
     }
 
     private fun getPlayerList(): Collection<PlayerInfo> {

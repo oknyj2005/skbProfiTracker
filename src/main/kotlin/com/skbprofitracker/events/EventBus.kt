@@ -1,6 +1,5 @@
 package com.skbprofitracker.events
 
-import com.skbprofitracker.events.models.AfterMouseClickEvent
 import com.skbprofitracker.events.models.ActionBarCancellableEvent
 import com.skbprofitracker.events.models.ActionBarEvent
 import com.skbprofitracker.events.models.ChatCancellableEvent
@@ -18,7 +17,6 @@ import com.skbprofitracker.events.models.ScreenBeforeInitEvent
 import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.ChatUtils.getFormattedString
 import com.skbprofitracker.utils.ChatUtils.getUnformattedString
-import com.skbprofitracker.utils.InputUtils
 import kotlin.reflect.KClass
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents
@@ -31,7 +29,6 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLevelEvents as ClientWorldEvents
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback
-import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents
 import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.entity.decoration.ArmorStand
 import net.minecraft.world.entity.projectile.FishingHook
@@ -98,10 +95,6 @@ object EventBus {
                 publish(GuiClosedEvent(guiName))
             }
 
-            ScreenMouseEvents.afterMouseClick(screen).register { scr, click, consumed ->
-               publish(AfterMouseClickEvent(scr, click.x(), click.y(), click.buttonInfo().button, InputUtils.hasControlDown(click)))
-               consumed
-            }
         }
 
         ClientTickEvents.END_CLIENT_TICK.register { client ->

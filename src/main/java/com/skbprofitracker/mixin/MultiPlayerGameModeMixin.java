@@ -22,14 +22,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public class MultiPlayerGameModeMixin {
     @Inject(method = "useItem", at = @At("HEAD"))
     private void skbprofitracker$onInteractItem(Player player, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
-        if (hand != InteractionHand.MAIN_HAND) return;
-        EventBus.INSTANCE.publish(new PlayerInteractEvent(InteractActionType.USE_ITEM, true));
+        EventBus.INSTANCE.publish(new PlayerInteractEvent(InteractActionType.USE_ITEM, hand == InteractionHand.MAIN_HAND));
     }
 
     @Inject(method = "useItemOn", at = @At("HEAD"))
     private void skbprofitracker$onInteractBlock(LocalPlayer player, InteractionHand hand, BlockHitResult hitResult, CallbackInfoReturnable<InteractionResult> cir) {
-        if (hand != InteractionHand.MAIN_HAND) return;
-        EventBus.INSTANCE.publish(new PlayerInteractEvent(InteractActionType.USE_BLOCK, true));
+        EventBus.INSTANCE.publish(new PlayerInteractEvent(InteractActionType.USE_BLOCK, hand == InteractionHand.MAIN_HAND));
     }
 
     @Inject(method = "destroyBlock", at = @At("HEAD"))

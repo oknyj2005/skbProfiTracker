@@ -53,15 +53,16 @@ Every rule below suppresses a *false* credit. They are ordered by how often they
 | Removal credit (10 s) | Drop and pick up, or the compactor: 160 ore → 1 block |
 | Supercraft guard | The supercrafted stack appears in the sacks list and must not count twice |
 | Auction purchase guard | `You purchased X for N coins!` / `You claimed X from …'s auction!` fence the item for 10 s |
-| Head-consumable dedupe (5 s) | Drinking a player-head consumable makes the client predict a block placement |
+| Mining consumable confirmation | A right click is booked when a server inventory update confirms the decrease in the hand that used the item. Client-side block placement predictions do not count. |
 | Hollows-only items | `OIL_BARREL` only counts inside Crystal Hollows, within 8 s of a treasure chest announcement |
 
 ## Time
 
-Active seconds only: a strong signal (block break, attack) starts the clock, a weak signal (pickup,
-damage) only extends it. Grace is 60 s for slayer and rift, 90 s for mining, and an open boss fight
-(`Slay the boss!`) keeps it alive on its own. Only the `Mining` slice shows a per-hour number; the
-other slices are totals.
+Active seconds are driven by strong signals such as mining and attacking. Pickups can extend an
+active clock. The grace window is 60 s. An active normal Mining clock carries its remaining grace
+across confirmed Dwarven Mines–Mineshaft transfers, including the loading time up to
+the original deadline. Coordinate jumps within the Glacite route also retain that deadline. Walking
+does not refresh the window. An open Slayer boss fight keeps its active clock alive.
 
 ## Testing without the game
 

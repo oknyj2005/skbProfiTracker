@@ -1,0 +1,11 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "skbprofitracker:font/chat_coin.png",
+      "height": 9,
+      "ascent": 8,
+      "chars": ["\uE000"]
+    }
+  ]
+}

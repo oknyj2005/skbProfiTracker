@@ -4,15 +4,19 @@ import com.skbprofitracker.utils.ChatUtils.getFormattedString
 import com.skbprofitracker.utils.ChatUtils.getUnformattedString
 import com.skbprofitracker.utils.ChatUtils.removeFormatting
 import com.skbprofitracker.utils.enums.ColorCodes.GRAY
-import com.google.gson.JsonObject
 import com.mojang.serialization.JsonOps
 import net.minecraft.core.component.DataComponents
 import net.minecraft.world.item.component.CustomData
 import net.minecraft.world.item.ItemStack
+import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.NbtOps
+import net.minecraft.nbt.NumericTag
+import net.minecraft.nbt.StringTag
 import net.minecraft.world.item.FishingRodItem
 
 object ItemUtils {
+    private val npcAmountSuffix = Regex(".+ §8x\\d+$")
+    private val gemstoneNameGlyph = Regex("[^a-zA-Z0-9 ]")
 
     /*
      * Gets the unformatted lore lines from the item stack.
@@ -49,33 +53,24 @@ object ItemUtils {
     /**
      * Returns the "id" field from custom data (e.g. "PET" for pets).
      */
-    fun getCustomDataId(customData: CustomData): String? {
-        val obj = customDataToJsonObject(customData) ?: return null
-        return obj.get("id")?.takeIf { it.isJsonPrimitive }?.asString
-    }
+    fun getCustomDataId(customData: CustomData): String? =
+        readCustomDataValue(customData.copyTag(), "id")
 
     /**
-     * Returns the "petInfo" JSON string from custom data. Caller should parse it for further processing.
+     * Returns the petInfo JSON string for a pet stack.
      */
     fun getCustomDataPetInfo(customData: CustomData): String? {
-        val obj = customDataToJsonObject(customData) ?: return null
-        return obj.get("petInfo")?.takeIf { it.isJsonPrimitive }?.asString
+        val tag = customData.copyTag()
+        if (readCustomDataValue(tag, "id") != "PET") return null
+        return readCustomDataValue(tag, "petInfo")
     }
 
-    /*
-     * Converts a custom data component to a JSON object.
-     * @param customData The custom data component to convert.
-     * @returns {JsonObject} The JSON object, or null if the conversion fails.
-     */
-    fun customDataToJsonObject(customData: CustomData): JsonObject? {
-        val nbt = customData.copyTag()
-        if (nbt.isEmpty) return null
-        val jsonEl = try {
-            NbtOps.INSTANCE.convertTo(JsonOps.INSTANCE, nbt)
-        } catch (_: Exception) {
-            return null
-        }
-        return jsonEl?.takeIf { it.isJsonObject }?.asJsonObject
+    private fun readCustomDataValue(tag: CompoundTag, key: String): String? = when (val value = tag.get(key)) {
+        is StringTag -> value.value()
+        is NumericTag -> runCatching {
+            NbtOps.INSTANCE.convertTo(JsonOps.INSTANCE, value).asString
+        }.getOrNull()
+        else -> null
     }
 
     /*
@@ -88,15 +83,15 @@ object ItemUtils {
         var cleanedItemName = itemName
 
         // Booster cookie menu or NPCs append the amount to the item name - e.g. §9Fish Affinity Talisman §8x1
-        if (Regex(".+ §8x\\d+$").matches(cleanedItemName)) {
-            cleanedItemName = cleanedItemName.split(" ").dropLast(1).joinToString(" ")
+        if (npcAmountSuffix.matches(cleanedItemName)) {
+            cleanedItemName = cleanedItemName.substringBeforeLast(' ')
         }
 
         cleanedItemName = cleanedItemName.removeFormatting()
 
         // ☘ Rough Jade Gemstone -> Rough Jade Gemstone
         if (cleanedItemName.endsWith(" Gemstone")) {
-            cleanedItemName = cleanedItemName.replace(Regex("[^a-zA-Z0-9 ]"), "").trim()
+            cleanedItemName = cleanedItemName.replace(gemstoneNameGlyph, "").trim()
         }
 
         return cleanedItemName
@@ -249,20 +244,21 @@ object ItemUtils {
      * @param stack The item stack to read the rarity line from.
      * @returns {String?} The formatting codes of the rarity line, or null when there is none.
      */
-    fun getRarityPrefix(stack: ItemStack): String? {
+    fun getRarityPrefix(stack: ItemStack, formattedName: String? = null): String? {
         if (stack.isEmpty) return null
 
-        val rarityLine = getFormattedLoreLines(stack).lastOrNull { line ->
-            RARITY_LINE.matches(line.replace(Regex("§."), "").trim().uppercase())
-        }
-
-        if (rarityLine != null) {
-            leadingCodes(rarityLine)?.let { return it }
+        val lore = stack.get(DataComponents.LORE)?.lines().orEmpty()
+        for (index in lore.indices.reversed()) {
+            val line = lore[index].getFormattedString()
+            if (RARITY_LINE.matches(line.removeFormatting().trim().uppercase())) {
+                leadingCodes(line)?.let { return it }
+                break
+            }
         }
 
         // Attribute shards do not always repeat the rarity in the lore; their hover name is
         // already coloured by rarity though ("§6Paragon Shard").
-        return leadingCodes(stack.hoverName.getFormattedString())?.takeIf { prefix ->
+        return leadingCodes(formattedName ?: stack.hoverName.getFormattedString())?.takeIf { prefix ->
             prefix.any { it in "0123456789abcde" } && prefix.none { it in "f78" }
         }
     }

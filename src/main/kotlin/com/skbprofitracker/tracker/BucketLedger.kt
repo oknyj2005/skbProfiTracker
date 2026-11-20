@@ -21,7 +21,9 @@ data class ItemLine(
     val value: Double,
 )
 
-data class ResetTarget(val activity: Activity, val filter: String, val mode: TrackerViewMode) {
+data class TrackerViewTarget(val activity: Activity, val filter: String, val mode: TrackerViewMode) {
+    val canEditItems: Boolean get() = filter != BucketLedger.ALL
+
     val label: String
         get() = "${activity.bucketKey} / $filter / ${mode.name.lowercase()}"
 }
@@ -105,17 +107,11 @@ object BucketLedger {
 
     /** Which slayer type the overlay shows; [ALL] shows the sum of every type. */
     var slayerFilter: String = ALL
-        set(value) {
-            field = value
-            data().slayerFilter = value
-        }
+        private set
 
     /** Which mining slice the overlay shows; [ALL] shows the sum of every slice. */
     var miningFilter: String = ALL
-        set(value) {
-            field = value
-            data().miningFilter = value
-        }
+        private set
 
     fun init() {
         priceMode = runCatching { PriceMode.valueOf(data().priceMode) }.getOrDefault(PriceMode.INSTA_SELL)
@@ -245,12 +241,33 @@ object BucketLedger {
     }
 
     fun setFilter(activity: Activity, value: String) {
+        if (filterFor(activity) == value) return
         when (activity) {
-            Activity.SLAYER -> slayerFilter = value
-            Activity.MINING -> miningFilter = value
-            Activity.RIFT -> Unit
+            Activity.SLAYER -> {
+                slayerFilter = value
+                data().slayerFilter = value
+            }
+            Activity.MINING -> {
+                miningFilter = value
+                data().miningFilter = value
+            }
+            Activity.RIFT -> return
         }
+        PersistentDataManager.saveSkbDataToFileAsync()
     }
+
+    fun availableFilters(activity: Activity): List<String> {
+        val known = when (activity) {
+            Activity.SLAYER -> ActivityBucket.slayerTypeNames
+            Activity.MINING -> ActivityBucket.miningTypeNames
+            Activity.RIFT -> return emptyList()
+        }
+        val stored = storedTypes(activity).filterNot { it in known || it == ALL }.sorted()
+        return listOf(ALL) + (known + stored).filterNot { activity == Activity.SLAYER && it == "Riftstalker Bloodfiend" }
+    }
+
+    fun currentTarget(): TrackerViewTarget? =
+        ActivityBucket.current?.let { TrackerViewTarget(it, filterFor(it), viewMode) }
 
     class ItemCredit internal constructor(
         internal val bucket: BucketData,
@@ -524,26 +541,15 @@ object BucketLedger {
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
-    /** Manual correction from the overlay's [+]/[-] buttons, applied to the visible mode. */
-    /**
-     * Manual correction from the overlay's [+]/[-] buttons.
-     *
-     * Both modes are edited on purpose: the panel only shows one of them, but a correction is a
-     * statement about the item, not about the view. Editing session alone left total advertising
-     * the wrong number with no way to fix it from the UI.
-     */
-    fun adjust(activity: Activity, key: String, delta: Long) {
-        if (filterFor(activity) == ALL) return
-        // Only the bucket that actually holds the row is touched: applying the delta to every
-        // slice made `[+]` add the same unit once per slice when the ALL filter was active.
-        val buckets = editBuckets(activity)
-        val bucket = buckets
-            .filter { (itemsFor(it, viewMode)[key] ?: 0L) > 0L }
-            .maxByOrNull { itemsFor(it, viewMode)[key] ?: 0L }
-            ?: buckets.firstOrNull()
-            ?: return
-        applyDelta(itemsFor(bucket, viewMode), key, delta)
-        applyDelta(itemsFor(bucket, otherMode(viewMode)), key, delta)
+    /** Edits both counters in the displayed slice, bounded by the quantity in the selected mode. */
+    fun editItem(target: TrackerViewTarget, key: String, delta: Long) {
+        if (!target.canEditItems || target != currentTarget() || delta == 0L) return
+        val bucket = subTypes(target.activity)?.get(target.filter) ?: return
+        val shown = itemsFor(bucket, target.mode)[key] ?: return
+        if (shown <= 0L) return
+        val change = delta.coerceAtLeast(-shown)
+        applyDelta(bucket.sessionItems, key, change)
+        applyDelta(bucket.totalItems, key, change)
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 
@@ -552,54 +558,10 @@ object BucketLedger {
         if (next <= 0L) items.remove(key) else items[key] = next
     }
 
-    private fun otherMode(mode: TrackerViewMode): TrackerViewMode =
-        if (mode == TrackerViewMode.SESSION) TrackerViewMode.TOTAL else TrackerViewMode.SESSION
-
     private fun itemsFor(bucket: BucketData, mode: TrackerViewMode): MutableMap<String, Long> =
         if (mode == TrackerViewMode.SESSION) bucket.sessionItems else bucket.totalItems
 
-    /** Subtracts [amount] of [key] from the visible range, largest slice first. */
-    private fun subtractAcross(buckets: List<BucketData>, mode: TrackerViewMode, key: String, amount: Long) {
-        var remaining = amount
-        for (bucket in buckets.sortedByDescending { itemsFor(it, mode)[key] ?: 0L }) {
-            if (remaining <= 0L) break
-            val items = itemsFor(bucket, mode)
-            val have = items[key] ?: 0L
-            if (have <= 0L) continue
-            val take = minOf(have, remaining)
-            if (have - take <= 0L) items.remove(key) else items[key] = have - take
-            remaining -= take
-        }
-    }
-
-    /**
-     * The [x] button removes the number the row shows, not the key itself.
-     *
-     * Dropping the key from every slice wiped thousands of units of an item when the player only
-     * meant to delete the one row that said `1,000x`; session and total both shrink by the same
-     * amount so the correction still reaches the other view.
-     */
-    fun remove(activity: Activity, key: String, amount: Long) {
-        if (filterFor(activity) == ALL) return
-        val buckets = editBuckets(activity)
-        val shown = buckets.sumOf { itemsFor(it, viewMode)[key] ?: 0L }
-        val target = if (amount > 0L) minOf(amount, shown) else shown
-        if (target <= 0L) return
-
-        subtractAcross(buckets, viewMode, key, target)
-        subtractAcross(buckets, otherMode(viewMode), key, target)
-        PersistentDataManager.saveSkbDataToFileAsync()
-    }
-
-    /**
-     * Buckets the edit buttons act on: the visible slice, or every slice when showing [ALL].
-     *
-     * The old behaviour always wrote into the slice being recorded right now, so removing a row
-     * while looking at another slice (or at ALL) silently did nothing.
-     */
-    private fun editBuckets(activity: Activity): List<BucketData> = costBuckets(activity, filterFor(activity))
-
-    fun reset(target: ResetTarget) {
+    fun reset(target: TrackerViewTarget) {
         for (bucket in costBuckets(target.activity, target.filter)) {
             if (target.mode == TrackerViewMode.TOTAL) {
                 bucket.totalElapsedSeconds = 0
@@ -615,14 +577,6 @@ object BucketLedger {
             bucket.sessionRevision++
         }
         PersistentDataManager.saveSkbDataToFileAsync()
-    }
-
-    private fun currentItems(activity: Activity): MutableMap<String, Long> {
-        val bucket = storage(activity)
-        return when (viewMode) {
-            TrackerViewMode.SESSION -> bucket.sessionItems
-            TrackerViewMode.TOTAL -> bucket.totalItems
-        }
     }
 
     private fun bucketName(activity: Activity): String = activity.bucketKey

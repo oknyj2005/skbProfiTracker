@@ -9,19 +9,33 @@
 set -u
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="/d/pcl/.minecraft/versions/skb-main/mods"
+DEST="/d/pcl/.minecraft/versions/skb-main2/mods"
 WAIT_SECONDS="${WAIT_SECONDS:-7200}"   # how long to wait for the client to close
 POLL_SECONDS=5
 
 client_running() {
-    tasklist 2>/dev/null | grep -qiE '^(java|javaw)\.exe'
+    # Gradle and Kotlin daemons can linger after building. Treat other Java processes,
+    # including those we cannot inspect, as potential clients.
+    powershell.exe -NoProfile -NonInteractive -Command '
+        $filter = "Name = {0}java.exe{0} OR Name = {0}javaw.exe{0}" -f [char]39
+        $daemons = "(?:^|\s)(?:org\.gradle\.launcher\.daemon\.bootstrap\.GradleDaemon|org\.jetbrains\.kotlin\.daemon\.KotlinCompileDaemon)(?:\s|$)"
+        try {
+            $processes = Get-CimInstance Win32_Process -Filter $filter -ErrorAction Stop
+            if ($processes | Where-Object { $_.CommandLine -notmatch $daemons }) { exit 0 }
+            exit 3
+        } catch { exit 0 }
+    ' >/dev/null 2>&1
+    [ "$?" -ne 3 ]
 }
 
-version=$(sed -n 's/^mod\.version=//p' "$REPO/gradle.properties" | tr -d '\r')
+# Pass the version from -Pmod.version to deploy a dev build.
+version="${1:-$(sed -n 's/^mod\.version=//p' "$REPO/gradle.properties" | tr -d '\r')}"
 jar="$REPO/build/versions/skbProfiTracker-$version+26.2-fabric.jar"
-[ -f "$jar" ] || jar=$(ls -t "$REPO"/build/versions/skbProfiTracker-*.jar 2>/dev/null | head -n 1)
-if [ -z "$jar" ]; then
-    echo "no build output in $REPO/build/versions" >&2
+if [ "$#" -eq 0 ] && [ ! -f "$jar" ]; then
+    jar=$(ls -t "$REPO"/build/versions/skbProfiTracker-*.jar 2>/dev/null | head -n 1)
+fi
+if [ ! -f "$jar" ]; then
+    echo "no build output for $version in $REPO/build/versions" >&2
     exit 1
 fi
 

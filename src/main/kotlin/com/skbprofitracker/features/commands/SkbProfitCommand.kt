@@ -8,12 +8,13 @@ import com.skbprofitracker.tracker.BucketLedger
 import com.skbprofitracker.tracker.ProfitOverlay
 import com.skbprofitracker.tracker.CostLedger
 import com.skbprofitracker.tracker.LootLog
-import com.skbprofitracker.tracker.ResetTarget
+import com.skbprofitracker.tracker.ResetConfirmation
+import com.skbprofitracker.tracker.ResetConfirmation.Method
+import com.skbprofitracker.tracker.TrackerViewTarget
 import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.utils.ChatUtils
 import com.skbprofitracker.utils.CommonUtils
 import com.skbprofitracker.utils.Debug
-import com.skbprofitracker.utils.data.PersistentDataManager
 import com.skbprofitracker.utils.RegisterUtils
 import com.skbprofitracker.utils.gui.MoveGuis
 import net.fabricmc.loader.api.FabricLoader
@@ -25,22 +26,13 @@ import java.util.Locale
 object SkbProfitCommand {
     private const val COMMAND_NAME = "skbprofit"
 
-    /** How long a reset stays armed after the first call. */
-    private const val RESET_CONFIRM_MS = 15_000L
-
-    private data class PendingReset(val target: ResetTarget, val id: Long, val expiresAt: Long)
-
-    private var pendingReset: PendingReset? = null
-    private var nextResetId = 0L
+    private val resetConfirmation = ResetConfirmation<TrackerViewTarget>()
 
     fun init() {
         RegisterUtils.command(COMMAND_NAME) { args ->
             when (args.firstOrNull()?.lowercase()) {
                 "gui" -> MoveGuis.moveAllGuis()
-                "pause" -> {
-                    ActivityBucket.isPaused = !ActivityBucket.isPaused
-                    ChatUtils.sendLocalChat(statusLine(), true)
-                }
+                "pause" -> togglePause()
                 "reset" -> reset(args.getOrNull(1), args.getOrNull(2))
                 "types" -> printTypes()
                 "slayer" -> setFilter(Activity.SLAYER, args.drop(1).joinToString(" "))
@@ -68,13 +60,11 @@ object SkbProfitCommand {
 
     private fun reset(scope: String?, confirmationId: String?) {
         if (scope.equals("confirm", ignoreCase = true)) {
-            val pending = pendingReset
-            if (pending != null && pending.id == confirmationId?.toLongOrNull() &&
-                System.currentTimeMillis() <= pending.expiresAt
-            ) {
-                confirmReset(pending)
-            } else {
+            val target = resetConfirmation.confirm(confirmationId?.toLongOrNull(), System.currentTimeMillis())
+            if (target == null) {
                 ChatUtils.sendLocalChat("§eThis reset confirmation is no longer active.", true)
+            } else {
+                confirmReset(target)
             }
             return
         }
@@ -92,31 +82,41 @@ object SkbProfitCommand {
             ChatUtils.sendLocalChat("§cNo activity is running right now.", true)
             return
         }
-        requestReset(ResetTarget(activity, BucketLedger.filterFor(activity), mode))
+        requestReset(TrackerViewTarget(activity, BucketLedger.filterFor(activity), mode), Method.COMMAND)
     }
 
-    fun requestReset(target: ResetTarget) {
-        val now = System.currentTimeMillis()
-        val pending = pendingReset
-        if (pending != null && pending.target == target && now <= pending.expiresAt) {
-            confirmReset(pending)
+    fun isOverlaySessionResetArmed(target: TrackerViewTarget, now: Long): Boolean =
+        resetConfirmation.isArmed(target, Method.OVERLAY_SESSION, now)
+
+    fun requestOverlayReset(target: TrackerViewTarget) {
+        val method = if (target.mode == TrackerViewMode.SESSION) Method.OVERLAY_SESSION else Method.OVERLAY_TOTAL
+        requestReset(target, method)
+    }
+
+    private fun requestReset(target: TrackerViewTarget, method: Method) {
+        val id = resetConfirmation.request(target, method, System.currentTimeMillis())
+        if (id == null) {
+            confirmReset(target)
             return
         }
 
-        val request = PendingReset(target, ++nextResetId, now + RESET_CONFIRM_MS)
-        pendingReset = request
+        val seconds = method.windowMs / 1_000L
+        if (!method.usesChat) {
+            ChatUtils.sendLocalChat("§7About to clear §f${target.label}§7. Click again within ${seconds}s.", true)
+            return
+        }
         val sessionWarning = if (target.mode == TrackerViewMode.TOTAL) " The session will also be cleared." else ""
         ChatUtils.sendLocalChat("§eAbout to clear §f${target.label}§e. §7This cannot be undone.$sessionWarning", true)
         ChatUtils.sendLocalChatWithCommand(
-            "§a[Confirm] §7Clear §f${target.label} §7within 15s.",
-            "skbprofit reset confirm ${request.id}",
+            "§a[Confirm] §7Clear §f${target.label} §7within ${seconds}s.",
+            "skbprofit reset confirm $id",
         )
     }
 
-    private fun confirmReset(request: PendingReset) {
-        pendingReset = null
-        BucketLedger.reset(request.target)
-        ChatUtils.sendLocalChat("§aCleared ${request.target.label}.", true)
+    private fun confirmReset(target: TrackerViewTarget) {
+        BucketLedger.reset(target)
+        ProfitOverlay.invalidate()
+        ChatUtils.sendLocalChat("§aCleared ${target.label}.", true)
     }
 
     /**
@@ -142,16 +142,28 @@ object SkbProfitCommand {
     }
 
     private fun switchMode(mode: String?) {
-        BucketLedger.viewMode = when (mode?.lowercase()) {
+        val viewMode = when (mode?.lowercase()) {
             "total" -> TrackerViewMode.TOTAL
             "session" -> TrackerViewMode.SESSION
-            else -> if (BucketLedger.viewMode == TrackerViewMode.SESSION) {
-                TrackerViewMode.TOTAL
-            } else {
-                TrackerViewMode.SESSION
+            null, "toggle" -> BucketLedger.viewMode.next()
+            else -> {
+                ChatUtils.sendLocalChat("§cUsage: /skbprofit mode <session|total|toggle>", true)
+                return
             }
         }
-        ChatUtils.sendLocalChat("§7Viewing §6${BucketLedger.viewMode.name.lowercase()}§7 numbers.", true)
+        setViewMode(viewMode, announce = true)
+    }
+
+    fun setViewMode(mode: TrackerViewMode, announce: Boolean = false) {
+        BucketLedger.viewMode = mode
+        ProfitOverlay.invalidate()
+        if (announce) ChatUtils.sendLocalChat("§7Viewing §6${mode.name.lowercase()}§7 numbers.", true)
+    }
+
+    fun togglePause() {
+        ActivityBucket.isPaused = !ActivityBucket.isPaused
+        ProfitOverlay.invalidate()
+        ChatUtils.sendLocalChat(statusLine(), true)
     }
 
     /**
@@ -168,23 +180,37 @@ object SkbProfitCommand {
                 return
             }
         }
-        ActivityBucket.setNucleusTiming(enabled)
+        setNucleusTime(enabled)
         ChatUtils.sendLocalChat(
             if (enabled) "§aCrystal Hollows time is now counted" else "§7Crystal Hollows time is no longer counted",
         )
     }
 
+    fun setNucleusTime(enabled: Boolean) {
+        ActivityBucket.setNucleusTiming(enabled)
+        if (enabled && ActivityBucket.current == Activity.MINING && ActivityBucket.isCrystalHollowsArea()) {
+            BucketLedger.setFilter(Activity.MINING, ActivityBucket.MINING_NUCLEUS)
+        }
+        ProfitOverlay.invalidate()
+    }
+
     private fun switchPrice(mode: String?) {
-        BucketLedger.priceMode = when (mode?.lowercase()) {
+        val priceMode = when (mode?.lowercase()) {
             "insta", "instant" -> PriceMode.INSTA_SELL
             "offer" -> PriceMode.SELL_OFFER
-            else -> if (BucketLedger.priceMode == PriceMode.SELL_OFFER) {
-                PriceMode.INSTA_SELL
-            } else {
-                PriceMode.SELL_OFFER
+            null, "toggle" -> BucketLedger.priceMode.next()
+            else -> {
+                ChatUtils.sendLocalChat("§cUsage: /skbprofit price <insta|offer|toggle>", true)
+                return
             }
         }
-        ChatUtils.sendLocalChat("§7Pricing with §6${BucketLedger.priceMode.name.lowercase()}§7.", true)
+        setPriceMode(priceMode, announce = true)
+    }
+
+    fun setPriceMode(mode: PriceMode, announce: Boolean = false) {
+        BucketLedger.priceMode = mode
+        ProfitOverlay.invalidate()
+        if (announce) ChatUtils.sendLocalChat("§7Pricing with §6${mode.name.lowercase()}§7.", true)
     }
 
     private fun printCosts() {
@@ -194,19 +220,16 @@ object SkbProfitCommand {
             return
         }
 
-        val bucket = PersistentDataManager.skbprofitrackerData.bucket(activity.bucketKey)
-        val coins = if (BucketLedger.viewMode == TrackerViewMode.SESSION) {
-            bucket.sessionCoinsSpent
-        } else {
-            bucket.totalCoinsSpent
-        }
-        val view = CostLedger.view(activity, BucketLedger.viewMode, BucketLedger.priceMode)
+        val filter = BucketLedger.filterFor(activity)
+        val view = CostLedger.view(activity, BucketLedger.viewMode, BucketLedger.priceMode, filter)
 
         ChatUtils.sendLocalChat(
-            "§7Costs for §6${activity.bucketKey} §7(${BucketLedger.viewMode.name.lowercase()})§7:",
+            "§7Costs for §6${activity.bucketKey} / $filter §7(${BucketLedger.viewMode.name.lowercase()})§7: §c-${coins(view.totalValue)}",
             true,
         )
-        ChatUtils.sendLocalChat("  §ccoins §7-${coins(coins)} §8(purse, quest start)", true)
+        if (view.coinsSpent > 0.0) {
+            ChatUtils.sendLocalChat("  §ccoins §7-${coins(view.coinsSpent)} §8(purse, quest start)", true)
+        }
         for (line in view.lines) {
             val display = ItemTable.getByKey(line.name)?.name ?: line.name
             val unit = line.unitPrice?.let { coins(it) } ?: "unpriced"
@@ -226,22 +249,17 @@ object SkbProfitCommand {
             ChatUtils.sendLocalChat("§cNo activity is running right now.", true)
             return
         }
-        when (activity) {
-            // Riftstalker is fought inside the Rift, which has its own bucket, so it is not a
-            // slayer filter here. Order follows the in-game slayer list.
-            Activity.SLAYER -> printTypes(
-                activity,
-                "Slayer",
-                ActivityBucket.slayerTypeNames.filterNot { it == "Riftstalker Bloodfiend" },
-            )
-            Activity.MINING -> printTypes(activity, "Mining", ActivityBucket.miningTypeNames)
-            Activity.RIFT -> ChatUtils.sendLocalChat("§7The Rift is a single bucket - nothing to filter.", true)
-        }
+        printTypes(activity)
     }
 
-    private fun printTypes(activity: Activity, title: String, known: List<String>) {
-        val stored = BucketLedger.storedTypes(activity)
-        val types = known + stored.filterNot { it in known }.sorted()
+    private fun printTypes(activity: Activity) {
+        val options = BucketLedger.availableFilters(activity)
+        if (options.isEmpty()) {
+            ChatUtils.sendLocalChat("§7The Rift has a single bucket.", true)
+            return
+        }
+        val types = options.filterNot { it == BucketLedger.ALL }
+        val title = activity.bucketKey.replaceFirstChar { it.uppercase() }
         val filter = BucketLedger.filterFor(activity)
         val sub = subcommand(activity)
         ChatUtils.sendLocalChat("§7$title types §8— click one to filter", true)
@@ -304,26 +322,22 @@ object SkbProfitCommand {
     }
 
     private fun setFilter(activity: Activity, raw: String?) {
-        if (raw.isNullOrBlank()) {
-            printTypes()
+        val requested = raw?.trim()
+        if (requested.isNullOrEmpty()) {
+            printTypes(activity)
             return
         }
-        val known = when (activity) {
-            Activity.SLAYER -> ActivityBucket.slayerTypeNames
-            Activity.MINING -> ActivityBucket.miningTypeNames
-            Activity.RIFT -> emptyList()
-        }
-        val types = known + BucketLedger.storedTypes(activity).filterNot { it in known }
-        val filter = when {
-            raw.equals("all", true) -> BucketLedger.ALL
-            else -> types.firstOrNull { it.equals(raw, true) }
-                ?: types.firstOrNull { it.contains(raw, true) }
-                ?: run {
-                    ChatUtils.sendLocalChat("§cUnknown type: §f$raw", true)
-                    return
-                }
+        val options = BucketLedger.availableFilters(activity)
+        val exact = options.firstOrNull { it.equals(requested, true) }
+        val matches = options.filter { it.contains(requested, true) }
+        val filter = exact ?: matches.singleOrNull()
+        if (filter == null) {
+            val message = if (matches.isEmpty()) "Unknown type: $requested" else "Choose one of: ${matches.joinToString()}"
+            ChatUtils.sendLocalChat("§c$message", true)
+            return
         }
         BucketLedger.setFilter(activity, filter)
+        ProfitOverlay.invalidate()
         ChatUtils.sendLocalChat(
             "§7Filter: §f${if (filter == BucketLedger.ALL) "All" else filter}",
             true,
@@ -349,7 +363,11 @@ object SkbProfitCommand {
         }
 
         val view = BucketLedger.view(activity)
-        val state = if (ActivityBucket.isPaused) "§cpaused" else "§arunning"
+        val state = when {
+            ActivityBucket.isPaused -> "§cpaused"
+            ActivityBucket.isCountingFor(activity, view.filter) -> "§arunning"
+            else -> "§7idle"
+        }
         return "§7${activity.bucketKey}: $state §8| §6${view.items.size} types §8| §7${view.elapsedSeconds}s | $where"
     }
 }

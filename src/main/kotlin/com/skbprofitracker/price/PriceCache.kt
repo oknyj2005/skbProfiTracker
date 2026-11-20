@@ -155,4 +155,9 @@ object PriceCache {
     }
 }
 
-enum class PriceMode { INSTA_SELL, SELL_OFFER }
+enum class PriceMode(val shortName: String) {
+    INSTA_SELL("insta"),
+    SELL_OFFER("offer");
+
+    fun next(): PriceMode = if (this == INSTA_SELL) SELL_OFFER else INSTA_SELL
+}

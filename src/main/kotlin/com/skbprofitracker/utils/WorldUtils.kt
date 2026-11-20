@@ -110,18 +110,19 @@ object WorldUtils {
 
     private val zonePrefixes = listOf("⏣", "ф", "", "")
     private val zonePrefixesRegex = Regex(zonePrefixes.joinToString("|"))
+    private val nonAsciiZoneCharacters = Regex("[^\\u0000-\\u007F]")
 
     fun init() {
         EventBus.subscribe(ClientTickEvent::class, ::onClientTick)
         EventBus.subscribe(WorldChangedEvent::class, ::onWorldChanged)
     }
 
-    private fun onClientTick(@Suppress("UNUSED_PARAMETER") event: ClientTickEvent) {
+    private fun onClientTick(event: ClientTickEvent) {
         tickCounter++
         if (tickCounter < TICKS_PER_UPDATE) return
         tickCounter = 0
 
-        updateCache()
+        updateCache(event)
     }
 
     private fun onWorldChanged(@Suppress("UNUSED_PARAMETER") event: WorldChangedEvent) {
@@ -135,25 +136,17 @@ object WorldUtils {
         updateCache()
     }
 
-    private fun updateCache() {
+    private fun updateCache(event: ClientTickEvent? = null) {
         CommonUtils.runWithCatching("Failed to update world utils cache") {
-            cachedIsInSkyblock = readIsInSkyblock()
-
-            cachedIsOnAlpha = if (cachedIsInSkyblock) {
-                readIsOnAlpha()
-            } else false
-
-            cachedIsOnBingo = if (cachedIsInSkyblock) {
-                readIsOnBingo()
-            } else false
-
-            cachedWorldName = if (cachedIsInSkyblock) {
-                readWorldName()
-            } else null
-
-            cachedZoneName = if (cachedIsInSkyblock && !cachedWorldName.isNullOrEmpty()) {
-                readZoneName()
-            } else null        
+            val title = getScoreboardTitle()
+            cachedIsInSkyblock = title?.contains("skyblock", ignoreCase = true) == true
+            val lines = if (cachedIsInSkyblock) {
+                event?.scoreboardLines ?: TabListAndScoreboardUtils.getUnformattedScoreboardLines()
+            } else emptyList()
+            cachedIsOnAlpha = lines.any { it.contains("alpha.hypixel.net", ignoreCase = true) }
+            cachedIsOnBingo = cachedIsInSkyblock && title?.endsWith("Ⓑ") == true
+            cachedWorldName = if (cachedIsInSkyblock) readWorldName() else null
+            cachedZoneName = if (!cachedWorldName.isNullOrEmpty()) readZoneName(lines) else null
         }
     }
     
@@ -162,8 +155,8 @@ object WorldUtils {
         return worldName.ifEmpty { null }
     }
 
-    private fun readZoneName(): String? {
-        val zoneLine = TabListAndScoreboardUtils.getUnformattedScoreboardLines().find { line -> zonePrefixes.any { line.contains(it) } }
+    private fun readZoneName(lines: List<String>): String? {
+        val zoneLine = lines.find { line -> zonePrefixes.any { line.contains(it) } }
         if (zoneLine.isNullOrEmpty()) return null
 
         // ⏣ Abandoned🐍 Quarry -> Abandoned Quarry
@@ -171,7 +164,7 @@ object WorldUtils {
         //  Enigma's Crib -> Enigma's Crib
         var zoneName = zoneLine
             .replace(zonePrefixesRegex, "")
-            .replace(Regex("[^\\u0000-\\u007F]"), "")
+            .replace(nonAsciiZoneCharacters, "")
             .trim()
 
         // Some lava in Phlegblast area does not belong to Plhlegblast Pool zone but needs to be counted
@@ -194,25 +187,6 @@ object WorldUtils {
     
     private fun isBetweenIncluding(value: Double, num1: Double, num2: Double): Boolean {
         return value >= num1 && value <= num2
-    }
-
-    private fun readIsInSkyblock(): Boolean {
-        //val serverAddress = SkbMod.mc.currentServerEntry?.address ?: return false
-        //if (!serverAddress.contains("hypixel", ignoreCase = true)) return false
-        // ^ Commented out for now, because people with reverse proxy have other server addresses
-
-        val title = getScoreboardTitle() ?: return false
-        return title.contains("skyblock", ignoreCase = true)
-    }
-
-    private fun readIsOnAlpha(): Boolean {
-        val scoreboardLines = TabListAndScoreboardUtils.getUnformattedScoreboardLines()
-        return scoreboardLines.any { line -> line.contains("alpha.hypixel.net", ignoreCase = true) }
-    }
-
-    private fun readIsOnBingo(): Boolean {
-        val title = getScoreboardTitle() ?: return false
-        return title.endsWith("Ⓑ")
     }
 
     private fun getScoreboardTitle(): String? {

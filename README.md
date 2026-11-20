@@ -1,111 +1,72 @@
 # skbProfiTracker
 
-**English** | [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md)
 
-Client-side Fabric mod for **Hypixel SkyBlock** that answers one question:
+A client-side Fabric mod for Hypixel SkyBlock on **Minecraft 26.2**. Track drops, explicit costs, and active time while mining or doing Slayer, including the Rift.
 
-> 我现在干的这件事，每小时值多少钱？
+## Install
 
-It watches what drops into your inventory (and your Sacks), prices everything against the
-Bazaar / Auction House, and divides by *active* time — so the number stays honest when you
-afk, walk around, or reorganize your inventory.
+Download the JAR from [GitHub Releases](https://github.com/oknyj2005/skbProfiTracker/releases/latest). Each release includes `SHA256SUMS.txt` so you can verify the download.
 
-Currently targeted at **mining** and **slayer** (including Rift), on **Minecraft 26.2**.
+Put the JAR in your Minecraft instance's `mods` folder with **Fabric API** and **Fabric Language Kotlin** for Minecraft 26.2. The mod requires **Fabric Loader 0.18.1 or later** and **Java 25 or later**.
 
-## Download
+## What the numbers mean
 
-Download the mod jar and its `SHA256SUMS.txt` from the **[latest release](https://github.com/oknyj2005/skbProfiTracker/releases/latest)**.
-Put the jar in `.minecraft/mods/` alongside Fabric API and Fabric Language Kotlin. Use
-Minecraft 26.2 with Fabric Loader 0.18.1 or newer and Java 25 or newer.
+- **Profit** is the current value of recorded drops and coins. When there are recorded costs with a value, the HUD shows **Costs** and **Net profit**. Hover over the costs row in inventory to see the breakdown.
+- Market prices come from the selected Bazaar mode (**Insta Sell** or **Sell Offer**), then Auction House lowest BIN if available. NPC sell value acts as a floor. The mod stores counts, time, and recorded coin amounts, so previous drops are valued at current prices.
+- **Session** covers the current game launch. **Total** accumulates across launches. Mining has separate Mining, Corpse, and Nucleus slices. Slayer has one slice per boss type, and the Rift has its own tracker.
+- Active time uses a **60-second grace window**. Two mining or combat signals within three seconds can start the timer. A confirmed mining consumable use can start Mining immediately. Pickups extend a running timer. Confirmed travel between Dwarven Mines and a Glacite Mineshaft carries over the time remaining in the original window.
+- Nucleus timing is available in Crystal Hollows. Enable it from the HUD or with `/skbprofit nucleustime on`.
 
-## How it counts
+## HUD controls
 
-* **Gross output, not net profit.** Value = `Σ amount × current price`. Consumables are
-  tracked separately as costs; the headline number never has them subtracted.
-* **Prices are never stored.** Only quantities and elapsed time are persisted; every redraw
-  reprices against the live snapshot. Price order is Bazaar → lowest BIN → NPC sell price,
-  with the NPC price acting as a floor (so an item worth less than its NPC value is still
-  worth its NPC value).
-* **Active time.** Two strong signals within three seconds start the clock. Using a mining
-  consumable can start it immediately. Pickups extend an active clock. The idle window is
-  60 seconds. Boss fights hold the clock open, and manual pause freezes it.
-* **Buckets.** `Mining` / `Slayer` / `Rift` are gated by area, so the same pickaxe swing in
-  the Dwarven Mines and in the Spider's Den lands in different buckets.
-* **Slices.** Mining splits into `Mining` / `Nucleus` / `Corpse`, slayer into one bucket per
-  slayer type. Corpse and Nucleus loot is read from the chat loot block, so chest contents
-  never leak into the plain `Mining` number.
+Open inventory or chat to switch views, choose a slice, pause, or click the price badge. To browse more than 10 detailed item rows, hover over the list and scroll.
+
+In inventory, hover over an item in a specific slice to use **[+]**, **[-]**, or **[x]**. Both Session and Total receive the correction for that slice. **[x]** removes the shown quantity. **All** combines the slices and keeps item editing disabled.
+
+Click the Session reset button twice to confirm. For a Total reset, use the confirmation in chat. It keeps the original activity and slice if you change views. Resetting Total also clears Session for that target.
 
 ## Commands
 
-| Command | What it does |
+| Command | Action |
 | --- | --- |
-| `/skbprofit gui` | Move / rescale the overlay |
-| `/skbprofit mode [session\|total]` | Switch the displayed mode |
-| `/skbprofit price [offer\|insta]` | Switch the price source |
-| `/skbprofit types` | Chat menu of the slices for the current activity |
-| `/skbprofit slayer <type>` | Filter slayer by type (`all` to reset) |
-| `/skbprofit mining <type>` | Filter mining by slice (`all` to reset) |
-| `/skbprofit nucleustime <on\|off>` | Toggle the Nucleus timer in Crystal Hollows |
-| `/skbprofit pause` | Pause / resume counting |
-| `/skbprofit reset [session\|total]` | Reset the selected slice after confirmation |
-| `/skbprofit loot [n]` | Dump the last loot entries the chat parser saw |
-| `/skbprofit debug` | Print bucket / area / price / click diagnostics |
+| `/skbprofit` | Show the current tracker status |
+| `/skbprofit gui` | Move, scale, or align the HUD |
+| `/skbprofit mode [session\|total]` | Switch the displayed view |
+| `/skbprofit price [insta\|offer]` | Switch the Bazaar pricing mode |
+| `/skbprofit types` | List slices for the current activity in chat |
+| `/skbprofit mining [slice]` | List or select a Mining slice. Use `all` to combine slices |
+| `/skbprofit slayer [type]` | List or select a Slayer type. Use `all` to combine types |
+| `/skbprofit nucleustime [on\|off]` | Enable or disable Nucleus timing |
+| `/skbprofit pause` | Pause or resume tracking |
+| `/skbprofit reset [session\|total]` | Request a reset of the selected activity and slice |
+| `/skbprofit costs` | Show the cost breakdown in chat |
+| `/skbprofit loot [n]` | List recent chat loot entries |
+| `/skbprofit debug` | Toggle diagnostics and show tracker state and the loaded build |
 
-Open inventory or chat to interact with the overlay. Select a slice to use the `[+]`, `[-]`, and
-`[x]` item controls. The buttons below switch modes, pause, or request a reset of the displayed view.
+## What's new in 0.1.10
 
-## Tests
+- Scrollable item rows, a hoverable cost breakdown, and consistent HUD and command controls.
+- Mining timing carries across Glacite transfers. Server-confirmed consumable uses drive mining costs.
+- Cached HUD text layout, one shared scoreboard snapshot per tick, and less work during inventory scans.
 
-The scanner decision table and the in-flight bookkeeping live in `capture/ScanRules.kt` and
-`capture/CaptureBuffer.kt`, neither of which imports Minecraft, so they can be replayed with fake
-data:
+See the [changelog](CHANGELOG.md) for the full release notes.
+
+## Build and test
+
+Build with **JDK 25**.
 
 ```bash
+./gradlew :26.2-fabric:build
 bash tools/sim/run.sh
 ```
 
-`tools/deploy.sh` runs the same checks before copying a build into a client.
+On Windows, use `.\gradlew.bat :26.2-fabric:build` from PowerShell and run the simulation script with Git Bash. The JAR is written to `build/versions/`. The offline checks cover capture rules, consumable confirmation, travel timing, and HUD controls.
 
-## Building
+Read the [handover](docs/HANDOVER.md), [capture pipeline](docs/CAPTURE_PIPELINE.md), and [Slayer drop table](docs/SLAYER_TABLE.md) for project details.
 
-Requires **JDK 25** (Minecraft 26.x ships class files at major version 69).
+## Credits and license
 
-```bash
-./gradlew :26.2-fabric:build      # macOS / Linux
-gradlew.bat :26.2-fabric:build    # Windows
-```
+The architecture and HUD framework are derived from [Feesh](https://github.com/Sleepy-Panda/Feesh). Drop and item references include SkyHanni and NotEnoughUpdates. Market prices come from the Hypixel Bazaar API and the EliteSkyBlock auction API.
 
-The jar lands in `build/versions/` and goes into `.minecraft/mods/`.
-
-## Repository layout
-
-```
-src/main/kotlin/…        mod sources (Fabric + Kotlin)
-src/main/java/…          mixins
-src/main/resources/      fabric.mod.json, mixins config, assets (item table)
-versions/26.2-fabric/    per-version Gradle module
-docs/                    design notes and generated item tables
-tools/                   table generators and fetch scripts
-```
-
-`data/` (price and NEU snapshots) and `reference/` (third-party sources used while
-reverse-engineering) are local only and git-ignored.
-
-## Docs
-
-* [`docs/HANDOVER.md`](docs/HANDOVER.md) — state of the project, build and deploy steps, known traps.
-* [`docs/CAPTURE_PIPELINE.md`](docs/CAPTURE_PIPELINE.md) — how an item becomes profit, gate by gate.
-* [`docs/DESIGN.md`](docs/DESIGN.md) — the design decisions behind the numbers.
-* [`docs/SLAYER_TABLE.md`](docs/SLAYER_TABLE.md) — generated slayer drop table.
-
-## Credits
-
-* Architecture and UI framework are derived from **[Feesh](https://github.com/Sleepy-Panda/Feesh)**
-  (Apache-2.0) — see [`NOTICE`](NOTICE).
-* Slayer drop lists cross-checked against the **SkyHanni** repository constants.
-* Display names come from the **NotEnoughUpdates** item repository.
-* Prices: Hypixel Bazaar API and EliteSkyBlock auction API.
-
-## License
-
-Apache License 2.0 — see [`LICENSE`](LICENSE).
+Licensed under [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.

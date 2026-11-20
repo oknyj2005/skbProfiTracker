@@ -5,6 +5,7 @@ import com.skbprofitracker.SkbMod
 import com.skbprofitracker.capture.ActivityKind
 import com.skbprofitracker.capture.CaptureBuffer
 import com.skbprofitracker.capture.AddVerdict
+import com.skbprofitracker.capture.MiningConsumableUses
 import com.skbprofitracker.capture.RemovalVerdict
 import com.skbprofitracker.capture.ScanRules
 import com.skbprofitracker.capture.ScreenKind
@@ -12,6 +13,8 @@ import com.skbprofitracker.events.EventBus
 import com.skbprofitracker.events.models.ChatEvent
 import com.skbprofitracker.events.models.ClientTickEvent
 import com.skbprofitracker.events.models.GuiClosedEvent
+import com.skbprofitracker.events.models.PlayerInteractEvent
+import com.skbprofitracker.events.models.ScreenBeforeInitEvent
 import com.skbprofitracker.events.models.WorldChangedEvent
 import com.skbprofitracker.items.ItemColors
 import com.skbprofitracker.items.ItemTable
@@ -31,6 +34,7 @@ import com.skbprofitracker.utils.ItemUtils
 import com.skbprofitracker.utils.WorldUtils
 import com.skbprofitracker.utils.getScreenCompat
 import com.skbprofitracker.utils.data.PersistentDataManager
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 import net.minecraft.client.gui.screens.inventory.AnvilScreen
 import net.minecraft.client.gui.screens.inventory.BrewingStandScreen
 import net.minecraft.client.gui.screens.inventory.CraftingScreen
@@ -38,6 +42,8 @@ import net.minecraft.client.gui.screens.inventory.EnchantmentScreen
 import net.minecraft.client.gui.screens.inventory.FurnaceScreen
 import net.minecraft.client.gui.screens.inventory.InventoryScreen
 import net.minecraft.world.entity.EquipmentSlot
+import net.minecraft.world.entity.player.Inventory
+import net.minecraft.world.inventory.InventoryMenu
 import net.minecraft.world.item.ItemStack
 
 /**
@@ -61,6 +67,7 @@ object InventoryItemPickupPublisher {
     // Every uncertain move (held pickups, removal credits, ignored withdrawals) lives here so it
     // expires in one place and can be replayed with fake time in tools/sim.
     private val buffer = CaptureBuffer(PENDING_INCREASE_MS, REMOVAL_CREDIT_MS)
+    private val miningConsumableUses = MiningConsumableUses()
 
     private const val BAZAAR_FILTER_MS = 2_000L
     private const val AUCTION_FILTER_MS = 5_000L
@@ -153,6 +160,51 @@ object InventoryItemPickupPublisher {
         EventBus.subscribe(WorldChangedEvent::class) { resetInventoryState() }
         EventBus.subscribe(GuiClosedEvent::class) { onGuiClosed(it.guiName) }
         EventBus.subscribe(ChatEvent::class) { onChat(it.unformattedText) }
+        EventBus.subscribe(PlayerInteractEvent::class) { onPlayerInteract(it) }
+        EventBus.subscribe(ScreenBeforeInitEvent::class) {
+            if (it.screen is AbstractContainerScreen<*>) miningConsumableUses.clear()
+        }
+    }
+
+    private fun onPlayerInteract(event: PlayerInteractEvent) {
+        if (SkbMod.mc.getScreenCompat() != null || !WorldUtils.isInSkyblock()) return
+        val inventory = SkbMod.mc.player?.inventory ?: return
+        val slot = if (event.isMainHand) inventory.selectedSlot else Inventory.SLOT_OFFHAND
+        val stack = inventory.getItem(slot)
+        val key = getEntryFromStack(stack)?.key ?: return
+        if (!CostLedger.isMiningConsumable(key)) return
+        miningConsumableUses.attempt(slot, key, stack.count, System.nanoTime() / 1_000_000L)
+    }
+
+    fun onPlayerMenuSlot(slot: Int, stack: ItemStack) {
+        val inventorySlot = when {
+            slot == InventoryMenu.SHIELD_SLOT -> Inventory.SLOT_OFFHAND
+            slot in InventoryMenu.USE_ROW_SLOT_START until InventoryMenu.USE_ROW_SLOT_END ->
+                slot - InventoryMenu.USE_ROW_SLOT_START
+            else -> return
+        }
+        onPlayerInventorySlot(inventorySlot, stack)
+    }
+
+    fun onPlayerMenuContents(stacks: List<ItemStack>) {
+        for (slot in miningConsumableUses.slots()) {
+            val menuSlot = if (slot == Inventory.SLOT_OFFHAND) {
+                InventoryMenu.SHIELD_SLOT
+            } else {
+                slot + InventoryMenu.USE_ROW_SLOT_START
+            }
+            stacks.getOrNull(menuSlot)?.let { onPlayerInventorySlot(slot, it) }
+        }
+    }
+
+    fun onPlayerInventorySlot(slot: Int, stack: ItemStack) {
+        if (!miningConsumableUses.hasPendingUse(slot)) return
+        CommonUtils.runWithCatching("Failed to confirm mining consumable use") {
+            val key = getEntryFromStack(stack)?.key
+            val count = if (stack.isEmpty) 0 else stack.count
+            val used = miningConsumableUses.serverUpdate(slot, key, count, System.nanoTime() / 1_000_000L)
+            if (used != null) CostLedger.onMiningConsumableUsed(used.first, used.second)
+        }
     }
 
     private fun onClientTick() {
@@ -281,24 +333,13 @@ object InventoryItemPickupPublisher {
                 val currentTotal = currentInventory[key] ?: 0
                 if (currentTotal >= previousTotal) continue
                 val removed = previousTotal - currentTotal
-                // Fiesta / potato / filet / pie never enter a sack, so their disappearance is
-                // always a drink. Charging them regardless of the screen verdict also covers the
-                // stale-title case that silently dropped a potion in the past.
-                // Putting a potion into a chest is a move, not a drink: if the open container
-                // gained the same key, the item is not gone. Everything else (stale title, plain
-                // inventory) is treated as a drink.
-                val storedAway = (currentContainer[key] ?: 0) - (previousCont[key] ?: 0) > 0
-                val forcedConsumable = removalVerdict != RemovalVerdict.COST_AND_CREDIT &&
-                    removalVerdict != RemovalVerdict.DEPOSIT &&
-                    CostLedger.isMiningConsumable(key) &&
-                    !storedAway
-                when (if (forcedConsumable) RemovalVerdict.COST_AND_CREDIT else removalVerdict) {
+                when (removalVerdict) {
                     RemovalVerdict.COST_AND_CREDIT -> {
-                        if (CostLedger.isCostKey(key)) {
-                            Debug.decision("[cost] saw $key -$removed (screen=open) -> charging")
-                        }
                         addPendingRemoval(key, removed)
-                        CostLedger.onItemRemoved(key, removed)
+                        if (!CostLedger.isMiningConsumable(key) && CostLedger.isCostKey(key)) {
+                            Debug.decision("[cost] saw $key -$removed -> checking cost")
+                            CostLedger.onItemRemoved(key, removed)
+                        }
                     }
                     RemovalVerdict.DEPOSIT -> {
                         SacksItemPickupPublisher.noteManualDeposit(key, removed)
@@ -582,7 +623,8 @@ object InventoryItemPickupPublisher {
     private fun getEntryFromStack(stack: ItemStack): ItemTable.Entry? {
         if (stack.isEmpty) return null
 
-        var name = ItemUtils.getCleanItemName(stack.hoverName.getFormattedString())
+        val formattedName = stack.hoverName.getFormattedString()
+        var name = ItemUtils.getCleanItemName(formattedName)
         if (name.isBlank()) return null
 
         if (name == "Enchanted Book") {
@@ -595,7 +637,7 @@ object InventoryItemPickupPublisher {
 
         val byName = ItemTable.get(name)
         if (byName != null) {
-            ItemColors.remember(byName.key, ItemUtils.getRarityPrefix(stack))
+            ItemColors.remember(byName.key, ItemUtils.getRarityPrefix(stack, formattedName))
             return byName
         }
 
@@ -607,7 +649,7 @@ object InventoryItemPickupPublisher {
             ?.takeIf { it.isNotBlank() }
         val byId = customId?.let { ItemTable.getByKey(it) }
         if (byId != null) {
-            ItemColors.remember(byId.key, ItemUtils.getRarityPrefix(stack))
+            ItemColors.remember(byId.key, ItemUtils.getRarityPrefix(stack, formattedName))
             return byId
         }
 
@@ -622,8 +664,6 @@ object InventoryItemPickupPublisher {
 
     private fun getPetTier(stack: ItemStack): String? {
         val customData = ItemUtils.getCustomData(stack) ?: return null
-        if (ItemUtils.getCustomDataId(customData) != "PET") return null
-
         return try {
             val petInfo = ItemUtils.getCustomDataPetInfo(customData) ?: return null
             JsonParser.parseString(petInfo).asJsonObject.get("tier")?.takeIf { it.isJsonPrimitive }?.asString
@@ -639,6 +679,7 @@ object InventoryItemPickupPublisher {
         lastFingerprint = null
         fingerprintStableSince = null
         buffer.clear()
+        miningConsumableUses.clear()
     }
 
     /**

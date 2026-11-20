@@ -91,6 +91,7 @@ object SacksItemPickupPublisher {
             val text = event.unformattedText
             when {
                 SACKS_TRIGGER.matches(text) || SACKS_WITHDRAW_TRIGGER.matches(text) -> {
+                    if (ActivityBucket.isPaused) return@runWithCatching
                     // A single line can carry both halves: the hover lists `Added items:` and
                     // `Removed items:` separately. Withdrawals are handled first so they cancel
                     // whatever the inventory scan already booked for the same stack.
@@ -148,6 +149,7 @@ object SacksItemPickupPublisher {
     }
 
     private fun onSackItems(items: List<SackPickup>, withdrawals: List<SackPickup>, windowMs: Long) {
+        if (ActivityBucket.isPaused) return
         val now = System.currentTimeMillis()
         // Even with the sack screen open this line still carries real loot mined earlier, so it
         // is not dropped wholesale: the moves made on screen are netted by [takeManualDeposit].

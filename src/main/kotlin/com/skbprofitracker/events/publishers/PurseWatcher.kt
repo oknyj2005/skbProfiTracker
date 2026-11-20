@@ -10,7 +10,6 @@ import com.skbprofitracker.tracker.CostLedger
 import com.skbprofitracker.utils.ChatUtils
 import com.skbprofitracker.utils.ChatUtils.removeFormatting
 import com.skbprofitracker.utils.Debug
-import com.skbprofitracker.utils.TabListAndScoreboardUtils
 import com.skbprofitracker.utils.WorldUtils
 import com.skbprofitracker.utils.getScreenCompat
 
@@ -47,7 +46,7 @@ object PurseWatcher {
     private const val BOSS_KILL_DEDUPE_MS = 3_000L
 
     fun init() {
-        EventBus.subscribe(ClientTickEvent::class) { onClientTick() }
+        EventBus.subscribe(ClientTickEvent::class, ::onClientTick)
         EventBus.subscribe(ChatEvent::class) { onChat(it) }
     }
 
@@ -70,13 +69,13 @@ object PurseWatcher {
         }
     }
 
-    private fun onClientTick() {
+    private fun onClientTick(event: ClientTickEvent) {
         if (!WorldUtils.isInSkyblock()) {
             lastPurse = null
             return
         }
 
-        val purse = readPurse() ?: return
+        val purse = readPurse(event.scoreboardLines) ?: return
         val previous = lastPurse
         lastPurse = purse
 
@@ -139,10 +138,11 @@ object PurseWatcher {
         }
     }
 
-    private fun readPurse(): Long? {
-        val lines = TabListAndScoreboardUtils.getUnformattedScoreboardLines()
+    private fun readPurse(lines: List<String>): Long? {
         for (line in lines) {
-            val match = PURSE_LINE.matchEntire(line.trim()) ?: continue
+            val text = line.trim()
+            if (!text.startsWith("Purse: ") && !text.startsWith("Piggy: ")) continue
+            val match = PURSE_LINE.matchEntire(text) ?: continue
             return match.groupValues[1].replace(",", "").toLongOrNull()
         }
         return null

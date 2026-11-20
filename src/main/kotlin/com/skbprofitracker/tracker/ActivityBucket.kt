@@ -12,6 +12,7 @@ import com.skbprofitracker.utils.WorldUtils
 import com.skbprofitracker.utils.getScreenCompat
 import com.skbprofitracker.utils.data.BucketData
 import com.skbprofitracker.utils.data.PersistentDataManager
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents
 
 enum class Activity {
     MINING,
@@ -136,6 +137,7 @@ object ActivityBucket {
     private data class PendingMiningStart(val source: String, val expiresAt: Long)
 
     private var pendingMiningStart: PendingMiningStart? = null
+    private var pendingGlaciteTransfer: GlaciteTravel.Transfer? = null
     private const val PENDING_START_MS = 300_000L
 
     /** Manual pause stops the timer and the ledger, as opposed to the automatic grace. */
@@ -144,6 +146,7 @@ object ActivityBucket {
             field = value
             if (value) {
                 pendingMiningStart = null
+                pendingGlaciteTransfer = null
                 clearSignals()
             }
         }
@@ -216,13 +219,17 @@ object ActivityBucket {
         get() = MINING_TYPES
 
     fun init() {
-        EventBus.subscribe(ClientTickEvent::class) { onTick() }
+        EventBus.subscribe(ClientTickEvent::class, ::onTick)
         EventBus.subscribe(WorldChangedEvent::class) { onWorldChanged() }
+        ClientPlayConnectionEvents.DISCONNECT.register { _, _ ->
+            pendingGlaciteTransfer = null
+            resetWorldState()
+        }
     }
 
     /** One boss died. Printed as `SLAYER QUEST COMPLETE!` by the server. */
     fun onBossSlain() {
-        if (current != Activity.SLAYER) return
+        if (isPaused || current != Activity.SLAYER) return
         BucketLedger.addBossKill(lastSlayerTypeName)
     }
 
@@ -309,12 +316,8 @@ object ActivityBucket {
         lastSignalSource = source
     }
 
-    /**
-     * Warping into a new area reloads chunks and the client can keep the previous session alive,
-     * so the timer would run while the player is still standing in a loading screen. A jump of
-     * more than 64 blocks in one tick is a teleport, not movement: drop the old signal.
-     */
-    private fun checkTeleport() {
+    /** A coordinate jump usually ends the active window. Base Camp travel keeps its remainder. */
+    private fun checkTeleport(now: Long) {
         val player = SkbMod.mc.player ?: return
         val pos = player.position()
         if (!hasPos) {
@@ -328,8 +331,11 @@ object ActivityBucket {
         val dy = pos.y - lastPosY
         val dz = pos.z - lastPosZ
         if (dx * dx + dy * dy + dz * dz > TELEPORT_SQR) {
-            if (hasStrongSignal) Debug.log("[signal] reset (teleport)")
-            clearSignals()
+            val keepMiningClock = isGlaciteMiningActive(now) &&
+                GlaciteTravel.includes(world, zone) &&
+                GlaciteTravel.includes(WorldUtils.getWorldName().orEmpty(), WorldUtils.getZoneName().orEmpty())
+            if (hasStrongSignal && !keepMiningClock) Debug.log("[signal] reset (teleport)")
+            clearSignals(keepMiningClock)
         }
         lastPosX = pos.x
         lastPosY = pos.y
@@ -383,12 +389,13 @@ object ActivityBucket {
         return filter == BucketLedger.ALL || filter == timingSlice(activity)
     }
 
-    private fun onTick() {
+    private fun onTick(event: ClientTickEvent) {
         val now = System.currentTimeMillis()
 
-        checkTeleport()
-        refreshRegion()
+        checkTeleport(now)
+        refreshRegion(event.scoreboardLines)
         updateCurrent(now)
+        resumeGlaciteTransfer(now)
         recordBucket(now)
 
         val pending = pendingMiningStart
@@ -423,6 +430,52 @@ object ActivityBucket {
     }
 
     private fun onWorldChanged() {
+        val now = System.currentTimeMillis()
+        val origin = GlaciteTravel.region(world)
+        if (origin != null && isGlaciteMiningActive(now)) {
+            pendingGlaciteTransfer = GlaciteTravel.Transfer(
+                origin,
+                now,
+                maxOf(lastCountMs, now - SECOND_MS),
+                lastSignalMs,
+                lastSignalSource,
+                MINING_GRACE_MS,
+            )
+        }
+        resetWorldState()
+    }
+
+    private fun isGlaciteMiningActive(now: Long): Boolean =
+        current == Activity.MINING && !isPaused && hasActiveSignal(Activity.MINING, now)
+
+    private fun resumeGlaciteTransfer(now: Long) {
+        val transfer = pendingGlaciteTransfer ?: return
+        if (isGlaciteMiningActive(now)) {
+            pendingGlaciteTransfer = null
+            return
+        }
+        when (transfer.arrival(world, now)) {
+            GlaciteTravel.Arrival.WAITING -> return
+            GlaciteTravel.Arrival.CANCELLED -> {
+                pendingGlaciteTransfer = null
+                return
+            }
+            GlaciteTravel.Arrival.CONFIRMED -> if (current != Activity.MINING) return
+        }
+
+        pendingGlaciteTransfer = null
+        val seconds = transfer.secondsToCredit(now)
+        addElapsed(BucketLedger.sliceStorage(Activity.MINING, MINING_NORMAL), seconds)
+        if (now - transfer.signalAtMs <= MINING_GRACE_MS) {
+            hasStrongSignal = true
+            lastSignalMs = transfer.signalAtMs
+            lastSignalSource = transfer.signalSource
+            lastCountMs = transfer.countedThroughMs + seconds * SECOND_MS
+        }
+        Debug.log("[signal] Glacite transfer to $world (credited ${seconds}s)")
+    }
+
+    private fun resetWorldState() {
         current = null
         world = ""
         zone = ""
@@ -433,20 +486,21 @@ object ActivityBucket {
         clearSignals()
     }
 
-    private fun clearSignals() {
-        lastSignalMs = 0L
+    private fun clearSignals(keepMiningClock: Boolean = false) {
+        if (!keepMiningClock) {
+            lastSignalMs = 0L
+            lastSignalSource = "none"
+            hasStrongSignal = false
+        }
         lastAttackMs = 0L
-        lastSignalSource = "none"
-        hasStrongSignal = false
         pendingStartMs = 0L
         pendingStartCount = 0
         recentStrongSignals.clear()
     }
 
-    private fun refreshRegion() {
+    private fun refreshRegion(lines: List<String>) {
         world = WorldUtils.getWorldName().orEmpty()
         zone = WorldUtils.getZoneName().orEmpty()
-        val lines = TabListAndScoreboardUtils.getUnformattedScoreboardLines()
         slayerQuest = readSlayerQuest(lines)
         if (slayerQuest != null) lastSlayerTypeName = slayerQuest!!.questName
         bossFight = lines.any { it.trim() == BOSS_FIGHT_LINE }
@@ -571,9 +625,13 @@ object ActivityBucket {
         val activity = current ?: return
         if (!isCounting(now)) return
 
-        val bucket = timingStorage(activity)
-        bucket.sessionElapsedSeconds += 1
-        bucket.totalElapsedSeconds += 1
+        addElapsed(timingStorage(activity), 1L)
+    }
+
+    private fun addElapsed(bucket: BucketData, seconds: Long) {
+        if (seconds <= 0L) return
+        bucket.sessionElapsedSeconds += seconds
+        bucket.totalElapsedSeconds += seconds
         PersistentDataManager.saveSkbDataToFileAsync()
     }
 

@@ -2,10 +2,7 @@ package com.skbprofitracker.utils.gui
 
 import com.skbprofitracker.events.models.GameRenderEvent
 import com.skbprofitracker.events.models.ScreenAfterBackgroundRenderEvent
-import com.skbprofitracker.events.models.AfterMouseClickEvent
 import com.skbprofitracker.events.EventBus
-import com.skbprofitracker.utils.GuiUtils
-import com.skbprofitracker.utils.ChatUtils
 import com.skbprofitracker.utils.Debug
 import com.skbprofitracker.utils.InputUtils
 import com.skbprofitracker.utils.WorldUtils
@@ -16,9 +13,11 @@ import com.skbprofitracker.utils.data.PersistentDataManager
 import net.minecraft.network.chat.Component
 import net.minecraft.client.gui.screens.inventory.InventoryScreen
 import net.minecraft.client.gui.screens.ChatScreen
+import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.GuiGraphicsExtractor as GuiGraphics
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.Font
+import net.minecraft.client.input.MouseButtonEvent
 import java.awt.Color
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -66,6 +65,8 @@ data class LineInfo(
     val actions: List<LineAction> = emptyList(),
     /** Whole-row click handler; used by pickers that should not need a hover pill. */
     val onClick: (() -> Unit)? = null,
+    /** Limit a text row's click handler to its trailing badge. */
+    val clickSuffix: String? = null,
 ) {
     val tableWidth: Int?
         get() {
@@ -198,6 +199,12 @@ class SkbGui {
     private var isClickable: Boolean = false
     private var lines: List<LineInfo> = emptyList()
     private var sampleLines: List<String> = emptyList()
+    private val viewport = RowViewport()
+    private var scrollableLines: ScrollableLines? = null
+    private var layoutFont: Font? = null
+    private var contentLayout: OverlayLayout? = null
+    private var interactiveLayout: OverlayLayout? = null
+    private var renderedOverlay: RenderedOverlay? = null
 
     private var color: Int = Color(255, 255, 255, 255).rgb
     // Buttons are shown when in inventory/chat on top of the overlay (e.g. Reset, Pause, switch mode).
@@ -207,7 +214,6 @@ class SkbGui {
         registeredGuis.add(this)
         EventBus.subscribe(GameRenderEvent::class, { event -> onDraw(event.drawContext, event.textRenderer, event.mcClient) })
         EventBus.subscribe(ScreenAfterBackgroundRenderEvent::class, ::onPostDrawAfterBackground)
-        EventBus.subscribe(AfterMouseClickEvent::class, ::onMouseClick)
     }
 
     fun getCoordsDataKey(): String = coordsDataKey
@@ -279,16 +285,63 @@ class SkbGui {
         return this
     }
 
-    fun setLines(lines: List<LineInfo>): SkbGui {
-        this.lines = lines
-        return this
+    private data class ScrollableLines(
+        val header: List<LineInfo>,
+        val rows: List<LineInfo>,
+        val footer: List<LineInfo>,
+    )
+
+    fun setScrollableLines(
+        header: List<LineInfo>,
+        rows: List<LineInfo>,
+        footer: List<LineInfo>,
+        limit: Int,
+        resetScroll: Boolean,
+    ) {
+        val content = ScrollableLines(header, rows, footer)
+        scrollableLines = content
+        if (resetScroll) viewport.reset()
+        viewport.resize(rows.size, limit)
+        updateVisibleLines(content)
+    }
+
+    private fun updateVisibleLines(content: ScrollableLines) {
+        val first = viewport.offset
+        val end = first + viewport.visibleCount
+        lines = buildList {
+            addAll(content.header)
+            addAll(content.rows.subList(first, end))
+            if (viewport.canScroll) {
+                add(LineInfo("${GRAY}Items ${first + 1}–$end / ${content.rows.size} ↕"))
+            }
+            addAll(content.footer)
+        }
+        contentLayout = null
+        interactiveLayout = null
+    }
+
+    /** The screen keeps its own wheel handling outside a visible, overflowing list. */
+    fun scrollRows(screen: Screen, mouseX: Double, mouseY: Double, vertical: Double): Boolean {
+        val content = scrollableLines ?: return false
+        if (!viewport.canScroll || vertical == 0.0 || !vertical.isFinite()) return false
+        if (!isClickable || !canDraw()) return false
+
+        val frame = renderedOverlay?.takeIf { it.screen === screen && it.scrollable === content } ?: return false
+        val hovered = frame.hitbox.rowAt(mouseX, mouseY, frame.layout.lines.size) ?: return false
+        val first = frame.buttonCount + content.header.size
+        val indicator = first + viewport.visibleCount
+        if (hovered !in first..indicator) return false
+
+        if (viewport.scroll(vertical)) updateVisibleLines(content)
+        return true
     }
 
     /**
      * Sets the list of buttons. Each button has lineIndex, text, and onClick callback.
      */
     fun setButtons(buttons: List<GuiButton>): SkbGui {
-        this.buttons = buttons
+        this.buttons = buttons.sortedBy { it.lineIndex }
+        interactiveLayout = null
         return this
     }
 
@@ -297,6 +350,11 @@ class SkbGui {
     fun clearLines(): SkbGui {
         this.lines = emptyList()
         this.buttons = emptyList()
+        scrollableLines = null
+        renderedOverlay = null
+        viewport.reset()
+        contentLayout = null
+        interactiveLayout = null
         return this
     }
 
@@ -317,93 +375,35 @@ class SkbGui {
         draw(event.drawContext, event.textRenderer, event.mcClient, event.mouseX, event.mouseY)
     }
 
-    private fun onMouseClick(event: AfterMouseClickEvent) {
+    fun click(screen: Screen, click: MouseButtonEvent): Boolean {
+        if (!isClickable || !canDraw() || !InputUtils.isLeftMouseButton(click.buttonInfo().button)) return false
+        if (OverlayStyle.BUTTONS_REQUIRE_CTRL_CLICK && !InputUtils.hasControlDown(click)) return false
+        val frame = renderedOverlay?.takeIf { it.screen === screen } ?: return false
+        val index = frame.hitbox.rowAt(click.x(), click.y(), frame.layout.lines.size) ?: return false
+        if (!frame.hitbox.isOverText(click.y(), index)) return false
+        val line = frame.layout.lines[index]
+        val action = when {
+            frame.inlineRow == index && line.actions.isNotEmpty() -> getClickedLineAction(frame, line, click.x())?.onClick
+            isOverClickableText(frame, line, click.x()) -> line.onClick
+            else -> null
+        } ?: return false
+
         try {
-            handleMouseClick(event)
-        } catch (t: Throwable) {
-            Debug.log("[click] failed: ${t.javaClass.simpleName} ${t.message}")
+            Debug.log("[click] ${screen.javaClass.simpleName} row=$index x=${click.x()} y=${click.y()}")
+            action()
+        } catch (ex: Exception) {
+            Debug.log("[click] failed: ${ex.javaClass.simpleName} ${ex.message}")
         }
+        return true
     }
 
-    private fun handleMouseClick(event: AfterMouseClickEvent) {
-        if (Debug.enabled) {
-            ChatUtils.sendLocalChat(
-                "§8[click] screen=${event.screen?.javaClass?.simpleName} mx=${event.mouseX} my=${event.mouseY} " +
-                    "x=$x y=$y scale=$scale clickable=$isClickable lines=${lines.size} buttons=${buttons.size} " +
-                    "inGui=${GuiUtils.isInInventoryOrChat()} skyblock=${WorldUtils.isInSkyblock()}",
-            )
-        }
-        if (lines.isEmpty() && buttons.isEmpty()) return
-        if (!isClickable) return
-        if (!WorldUtils.isInSkyblock()) return
-        if (!GuiUtils.isInInventoryOrChat()) return
-        if (!InputUtils.isLeftMouseButton(event.button)) return
-        if (event.screen !is InventoryScreen && event.screen !is ChatScreen) return
-        if (OverlayStyle.BUTTONS_REQUIRE_CTRL_CLICK && !event.hasControlDown) return
-
-        val textRenderer = Minecraft.getInstance().font
-
-        if (buttons.isNotEmpty()) {
-            val clickedButton = getClickedButton(textRenderer, event.mouseX, event.mouseY)
-            if (Debug.enabled) {
-                ChatUtils.sendLocalChat(
-                    "§8[click] hit=${clickedButton?.lineIndex} lh=${(textRenderer.lineHeight + 2) * scale} " +
-                        "mx=${event.mouseX.toInt()} my=${event.mouseY.toInt()}",
-                )
-            }
-            if (clickedButton != null) {
-                clickedButton.onClick()
-                return
-            }
-        }
-   
-        if (lines.any { it.actions.isNotEmpty() } && event.screen is InventoryScreen) { // TODO: Inline buttons are not rendered when in chat, due to missing mouseX/mouseY for hover.
-            val clickedLineAction = getClickedLineAction(textRenderer, event.mouseX, event.mouseY)
-            if (clickedLineAction != null) {
-                clickedLineAction.onClick()
-                return
-            }
-        }
-
-        if (lines.any { it.onClick != null } && event.screen is InventoryScreen) {
-            val clickedLine = getClickedLine(textRenderer, event.mouseX, event.mouseY)
-            if (Debug.enabled) {
-                val allLines = getDisplayLinesForRender()
-                val buttonLineTexts = buttons.sortedBy { it.lineIndex }.map { it.text }
-                val hovered = getHoveredLineIndex(textRenderer, allLines, event.mouseX, event.mouseY)
-                val info = hovered?.let { getLineInfoByDisplayIndex(it) }
-                ChatUtils.sendLocalChat(
-                    "§8[click] line hover=$hovered info=${info != null} onClick=${info?.onClick != null} " +
-                        "left=${getLeftEdge(textRenderer, lines, buttonLineTexts)} " +
-                        "max=${getOverlayMaxWidth(textRenderer, lines, buttonLineTexts)} scale=$scale " +
-                        "x=${event.mouseX} y=${event.mouseY} oy=$y lh=${(textRenderer.lineHeight + 2) * scale}",
-                )
-            }
-            if (clickedLine != null) {
-                clickedLine.onClick?.invoke()
-                return
-            }
-        }
-    }
-
-    /**
-     * Returns the row under the mouse when that row handles clicks itself.
-     *
-     * A picker inside the panel would otherwise need a hover pill per option, which hides the
-     * options until the cursor happens to land on them.
-     */
-    private fun getClickedLine(textRenderer: Font, mouseX: Double, mouseY: Double): LineInfo? {
-        val allLines = getDisplayLinesForRender()
-        val buttonLineTexts = if (GuiUtils.isInInventoryOrChat()) buttons.sortedBy { it.lineIndex }.map { it.text } else emptyList()
-        val hoveredLineIndex = getHoveredLineIndex(textRenderer, allLines, mouseX, mouseY) ?: return null
-        val lineInfo = getLineInfoByDisplayIndex(hoveredLineIndex) ?: return null
-        if (lineInfo.onClick == null) return null
-
-        val maxWidth = getOverlayMaxWidth(textRenderer, lines, buttonLineTexts) * scale.toDouble()
-        val leftEdge = getLeftEdge(textRenderer, lines, buttonLineTexts).toDouble()
-        if (mouseX < leftEdge - 2 || mouseX > leftEdge + maxWidth + 2) return null
-
-        return lineInfo
+    private fun isOverClickableText(frame: RenderedOverlay, line: LineInfo, mouseX: Double): Boolean {
+        if (line.onClick == null) return false
+        val width = getLineWidth(frame.font, line)
+        val start = alignedRowLeft(frame.hitbox.alignment, frame.hitbox.left, frame.hitbox.width, width)
+        val suffix = line.clickSuffix ?: return frame.hitbox.containsX(mouseX, start, width)
+        val suffixWidth = frame.font.width(Component.literal(suffix))
+        return frame.hitbox.containsX(mouseX, start + width - suffixWidth, suffixWidth)
     }
 
     /**
@@ -441,109 +441,102 @@ class SkbGui {
         this.x = newX
     }
     
-    /**
-     * Gets all display lines in order: buttons first (at their lineIndex), then lines.
-     */
-    private fun getAllDisplayLines(): List<String> {
-        val buttonLines = buttons.sortedBy { it.lineIndex }.map { it.text }
-        return buttonLines + lines.map { getLineDisplayText(it) }
-    }
-
-    private fun getLineDisplayText(lineInfo: LineInfo): String {
-        if (lineInfo.usesCells()) return lineInfo.cells!!.joinToString("") { it.text }
-        return lineInfo.text
-    }
-
     private fun getLineWidth(textRenderer: Font, lineInfo: LineInfo): Int {
         if (lineInfo.usesCells()) return lineInfo.tableWidth ?: 0
         return textRenderer.width(Component.literal(lineInfo.text))
     }
 
-    private fun getOverlayMaxWidth(
-        textRenderer: Font,
-        lineInfos: List<LineInfo>,
-        buttonLineTexts: List<String>,
-    ): Int {
-        val widths = lineInfos.map { getLineWidth(textRenderer, it) } +
-            buttonLineTexts.map { textRenderer.width(Component.literal(it)) }
-        return widths.maxOrNull() ?: 0
+    private data class PreparedText(val xOffset: Int, val text: Component)
+
+    private class OverlayLayout(
+        val lines: List<LineInfo>,
+        val maxWidth: Int,
+        val alignment: Alignment,
+        val rows: List<List<PreparedText>>,
+    ) {
+        val hoveredRows = mutableMapOf<Int, List<PreparedText>>()
     }
 
-    /**
-     * Gets the LineInfo for the given line index, skipping the buttons.
-     */
-    private fun getLineInfoByDisplayIndex(displayIndex: Int): LineInfo? {
-        val offset = if (GuiUtils.isInInventoryOrChat()) buttons.size else 0
-        if (displayIndex < offset) return null
-        return lines.getOrNull(displayIndex - offset)
-    }
+    private data class RenderedOverlay(
+        val screen: Screen,
+        val font: Font,
+        val layout: OverlayLayout,
+        val hitbox: OverlayHitbox,
+        val inlineRow: Int?,
+        val scrollable: ScrollableLines?,
+        val buttonCount: Int,
+    )
 
-    /**
-     * Gets display lines for rendering. Buttons are included only when in inventory or chat.
-     */
-    private fun getDisplayLinesForRender(): List<String> {
-        return if (GuiUtils.isInInventoryOrChat()) getAllDisplayLines() else lines.map { getLineDisplayText(it) }
-    }
-
-    private fun getRenderLineInfos(): List<LineInfo> {
-        return if (GuiUtils.isInInventoryOrChat()) {
-            val buttonLineInfos = buttons.sortedBy { it.lineIndex }.map { LineInfo(text = it.text) }
-            buttonLineInfos + lines
-        } else {
-            lines
+    private fun getLayout(textRenderer: Font, showButtons: Boolean): OverlayLayout {
+        if (layoutFont !== textRenderer) {
+            layoutFont = textRenderer
+            contentLayout = null
+            interactiveLayout = null
         }
+        val cached = if (showButtons) interactiveLayout else contentLayout
+        if (cached != null && cached.alignment == alignment) return cached
+
+        val displayLines = if (showButtons) buttons.map { LineInfo(it.text, onClick = it.onClick) } + lines else lines
+        val widths = displayLines.map { getLineWidth(textRenderer, it) }
+        val maxWidth = widths.maxOrNull() ?: 0
+        val rows = displayLines.mapIndexed { index, line ->
+            try {
+                prepareLine(textRenderer, line, widths[index], maxWidth)
+            } catch (ex: Exception) {
+                Debug.log("[draw] could not prepare line $index: ${ex.message}")
+                emptyList()
+            }
+        }
+        val layout = OverlayLayout(displayLines, maxWidth, alignment, rows)
+        if (showButtons) interactiveLayout = layout else contentLayout = layout
+        return layout
     }
 
     /**
      * Converts x coordinate (which represents different points based on alignment) to actual left edge.
      * Uses scaled width for CENTER/RIGHT so that the reference point stays correct after matrices.scale(scale).
      */
-    private fun getLeftEdge(
-        textRenderer: Font,
-        lineInfos: List<LineInfo>,
-        buttonLineTexts: List<String>,
-    ): Int {
-        val maxWidth = getOverlayMaxWidth(textRenderer, lineInfos, buttonLineTexts)
+    private fun scaledLeftEdge(maxWidth: Int): Int {
         val renderedWidth = (maxWidth * scale).toInt()
-        return when (alignment) {
+        val left = when (alignment) {
             Alignment.LEFT -> x
             Alignment.CENTER -> x - renderedWidth / 2
             Alignment.RIGHT -> x - renderedWidth
         }
+        return (left / scale).toInt()
     }
 
+    private fun scaledTop(): Int = (y / scale).toInt()
+
+    private fun canDraw(): Boolean =
+        lines.isNotEmpty() && WorldUtils.isInSkyblock() && settingsKey?.invoke() != false && condition()
+
     private fun draw(drawContext: GuiGraphics, textRenderer: Font, mcClient: Minecraft, mouseX: Int? = null, mouseY: Int? = null) {
-        if (lines.isEmpty()) return
-        if (!WorldUtils.isInSkyblock()) return
-        if (settingsKey != null && !settingsKey!!()) return
-        if (!condition()) return
-        if (mcClient.getScreenCompat() is MoveGuisScreen) return
+        renderedOverlay = null
+        if (!canDraw()) return
+        val screen = mcClient.getScreenCompat()
+        if (screen is MoveGuisScreen) return
 
-        val allLines = getDisplayLinesForRender()
-        val renderLineInfos = getRenderLineInfos()
-        val buttonLineTexts = if (GuiUtils.isInInventoryOrChat()) buttons.sortedBy { it.lineIndex }.map { it.text } else emptyList()
-        val scaledY = (y / scale).toInt()
-        val fontHeight = textRenderer.lineHeight
-        val lineHeightPx = fontHeight + 2
+        val interactive = isClickable && (screen is InventoryScreen || screen is ChatScreen)
+        val layout = getLayout(textRenderer, showButtons = interactive)
+        val left = scaledLeftEdge(layout.maxWidth)
+        val top = scaledTop()
+        val rowHeight = textRenderer.lineHeight + 2
+        val hitbox = if (interactive) OverlayHitbox(left, top, layout.maxWidth, textRenderer.lineHeight, scale, alignment) else null
 
-        val hasHoverableLines = lines.any { it.actions.isNotEmpty() || !it.tooltip.isNullOrEmpty() }
-        val hoveredLineIndex = if (mouseX != null && mouseY != null && hasHoverableLines) {
-            getHoveredLineIndex(textRenderer, allLines, mouseX.toDouble(), mouseY.toDouble())
+        val hoveredLineIndex = if (mouseX != null && mouseY != null) {
+            hitbox?.rowAt(mouseX.toDouble(), mouseY.toDouble(), layout.lines.size)
         } else null
-        val hoveredLineInfo = hoveredLineIndex?.let { getLineInfoByDisplayIndex(it) }
+        val hoveredLineInfo = hoveredLineIndex?.let { layout.lines[it] }
 
         val hoveredActions = hoveredLineInfo?.actions?.takeIf { it.isNotEmpty() }
         val hoveredTooltip = hoveredLineInfo?.tooltip
 
-        val maxWidth = getOverlayMaxWidth(textRenderer, lines, buttonLineTexts)
-        val leftEdge = getLeftEdge(textRenderer, lines, buttonLineTexts)
-        val scaledLeftEdge = (leftEdge / scale).toInt()
-        val height = (allLines.size * lineHeightPx)
-        var currentY = scaledY
+        val height = layout.lines.size * rowHeight
+        var currentY = top
 
-        val useCustomStyle = applyCustomStyleKey()
-        val overlayBackgroundCoords = getOverlayBackgroundCoords(scaledLeftEdge, scaledY, maxWidth, height)
-        if (useCustomStyle) {
+        if (applyCustomStyleKey()) {
+            val overlayBackgroundCoords = getOverlayBackgroundCoords(left, top, layout.maxWidth, height)
             val overlayScreenCoords = toScreenCoords(overlayBackgroundCoords)
             drawOverlayBackground(drawContext, overlayScreenCoords)
             drawOverlayBorder(drawContext, overlayScreenCoords) // I had to draw it before scaling, so the border is not scaled, and aligned with background.
@@ -552,28 +545,32 @@ class SkbGui {
         drawContext.pose().pushMatrix()
         drawContext.pose().scale(scale, scale)
 
-        val lineRenderContext = LineRenderContext(
-            drawContext = drawContext,
-            textRenderer = textRenderer,
-            scaledLeftEdge = scaledLeftEdge,
-            maxWidth = maxWidth,
-            color = color,
-        )
-
-        for ((index, line) in allLines.withIndex()) {
-            val lineInfo = renderLineInfos.getOrNull(index)
-            val actions = if (index == hoveredLineIndex) hoveredActions else null
-            // One malformed row must not blank out the rest of the overlay, and a swallowed
-            // failure here used to look like "the panel disappears when I hover".
+        for (index in layout.rows.indices) {
             try {
-                drawOverlayLine(lineRenderContext, lineInfo, line, currentY, actions)
-            } catch (t: Throwable) {
-                Debug.log("[draw] line $index failed (hovered=$hoveredLineIndex): ${t.javaClass.simpleName} ${t.message}")
+                val row = if (index == hoveredLineIndex && hoveredActions != null) {
+                    layout.hoveredRows.getOrPut(index) {
+                        prepareHoveredLine(textRenderer, layout.lines[index], layout.maxWidth)
+                    }
+                } else {
+                    layout.rows[index]
+                }
+                for (placement in row) {
+                    drawStringCompat(drawContext, textRenderer, placement.text, left + placement.xOffset, currentY, color, true)
+                }
+            } catch (ex: Exception) {
+                Debug.log("[draw] line $index failed (hovered=$hoveredLineIndex): ${ex.message}")
             }
-            currentY += lineHeightPx
+            currentY += rowHeight
         }
 
         drawContext.pose().popMatrix()
+
+        if (screen != null && hitbox != null) {
+            renderedOverlay = RenderedOverlay(
+                screen, textRenderer, layout, hitbox,
+                hoveredLineIndex.takeIf { hoveredActions != null }, scrollableLines, buttons.size,
+            )
+        }
 
         if (!hoveredTooltip.isNullOrEmpty() && mouseX != null && mouseY != null) {
             drawContext.setComponentTooltipForNextFrame(textRenderer, hoveredTooltip, mouseX, mouseY)
@@ -581,14 +578,6 @@ class SkbGui {
     }
 
     private fun LineInfo?.usesCells(): Boolean = this != null && !this.cells.isNullOrEmpty()
-
-    private data class LineRenderContext(
-        val drawContext: GuiGraphics,
-        val textRenderer: Font,
-        val scaledLeftEdge: Int,
-        val maxWidth: Int,
-        val color: Int,
-    )
 
     private data class HoveredLineMetrics(
         val buttonsStr: String,
@@ -600,206 +589,75 @@ class SkbGui {
         val usesCells: Boolean,
     )
 
-    private fun drawOverlayLine(
-        ctx: LineRenderContext,
+    private fun getHoveredLineMetrics(
+        textRenderer: Font,
         lineInfo: LineInfo?,
         line: String,
-        currentY: Int,
-        actions: List<LineAction>?,
-    ) {
-        
-        fun getHoveredLineMetrics(
-            textRenderer: Font,
-            lineInfo: LineInfo?,
-            line: String,
-            maxWidth: Int,
-            actions: List<LineAction>,
-        ): HoveredLineMetrics {
-            val buttonsStr = actions.joinToString("") { it.text }
-            val buttonsWidth = textRenderer.width(Component.literal(buttonsStr))
-            val spaceWidth = textRenderer.width(Component.literal(" "))
-            val reservedWidth = buttonsWidth + spaceWidth
-            val usesCells = lineInfo.usesCells()
-            val lineAvailableWidth = (maxWidth - reservedWidth).coerceAtLeast(0)
-            val clippedLine = if (usesCells) {
-                line
-            } else {
-                trimTextEndingToMaxWidth(textRenderer, line, lineAvailableWidth)
-            }
-            val clippedLineWidth = if (usesCells) {
-                lineInfo?.tableWidth ?: lineInfo?.let { getLineWidth(textRenderer, it) }
-                    ?: textRenderer.width(Component.literal(clippedLine))
-            } else {
-                textRenderer.width(Component.literal(clippedLine))
-            }
-            return HoveredLineMetrics(
-                buttonsStr = buttonsStr,
-                buttonsWidth = buttonsWidth,
-                reservedWidth = reservedWidth,
-                lineAvailableWidth = lineAvailableWidth,
-                clippedLine = clippedLine,
-                clippedLineWidth = clippedLineWidth,
-                usesCells = usesCells,
-            )
-        }
+        maxWidth: Int,
+        actions: List<LineAction>,
+    ): HoveredLineMetrics {
+        val buttonsStr = actions.joinToString("") { it.text }
+        val buttonsWidth = textRenderer.width(Component.literal(buttonsStr))
+        val reservedWidth = buttonsWidth + textRenderer.width(Component.literal(" "))
+        val usesCells = lineInfo.usesCells()
+        val lineAvailableWidth = (maxWidth - reservedWidth).coerceAtLeast(0)
+        val clippedLine = if (usesCells) line else trimTextEndingToMaxWidth(textRenderer, line, lineAvailableWidth)
+        val clippedLineWidth = if (usesCells) lineInfo?.tableWidth ?: 0
+        else textRenderer.width(Component.literal(clippedLine))
+        return HoveredLineMetrics(
+            buttonsStr, buttonsWidth, reservedWidth, lineAvailableWidth, clippedLine, clippedLineWidth, usesCells,
+        )
+    }
 
-        if (!actions.isNullOrEmpty()) {
-            val metrics = getHoveredLineMetrics(ctx.textRenderer, lineInfo, line, ctx.maxWidth, actions)
-            drawHoveredOverlayLine(ctx, lineInfo, metrics, currentY)
+    private fun prepareHoveredLine(font: Font, line: LineInfo, maxWidth: Int): List<PreparedText> {
+        val metrics = getHoveredLineMetrics(font, line, line.text, maxWidth, line.actions)
+        val buttonsLeft = inlineActionsLeft(alignment, 0, maxWidth, line, metrics)
+        val buttons = PreparedText(buttonsLeft, Component.literal(metrics.buttonsStr))
+        val content = if (metrics.usesCells) {
+            when (alignment) {
+                Alignment.LEFT -> prepareCellsLine(
+                    font, line, 0, maxWidth, firstColumnDrawLeftOverride = metrics.reservedWidth,
+                )
+                Alignment.RIGHT -> prepareCellsLine(
+                    font, line, 0, maxWidth, clipRightOverride = metrics.lineAvailableWidth,
+                )
+                Alignment.CENTER -> prepareCellsLine(
+                    font, line, buttonsLeft, line.tableWidth ?: metrics.clippedLineWidth,
+                    firstColumnDrawLeftOverride = buttonsLeft + metrics.reservedWidth,
+                )
+            }
         } else {
-            drawUnhoveredOverlayLine(ctx, lineInfo, line, currentY)
+            val left = if (alignment == Alignment.RIGHT) metrics.lineAvailableWidth - metrics.clippedLineWidth
+            else buttonsLeft + metrics.reservedWidth
+            prepareTextLine(font, metrics.clippedLine, left, metrics.lineAvailableWidth)
         }
+        return if (alignment == Alignment.RIGHT) content + buttons else listOf(buttons) + content
     }
 
-    private fun drawHoveredOverlayLine(
-        ctx: LineRenderContext,
-        lineInfo: LineInfo?,
-        metrics: HoveredLineMetrics,
-        currentY: Int,
-    ) {
-        val buttonsComponent = Component.literal(metrics.buttonsStr)
-
-        fun drawInlineButtons(buttonsX: Int) {
-            drawStringCompat(ctx.drawContext, ctx.textRenderer, buttonsComponent, buttonsX, currentY, ctx.color, true)
-        }
-
-        fun drawHoveredCellsLine(
-            lineStartX: Int,
-            contentWidth: Int,
-            clipRightOverride: Int? = null,
-            firstColumnDrawLeftOverride: Int? = null,
-        ) {
-            drawCellsLine(
-                ctx = ctx,
-                lineInfo = lineInfo!!,
-                lineStartX = lineStartX,
-                contentWidth = contentWidth,
-                currentY = currentY,
-                clipRightOverride = clipRightOverride,
-                firstColumnDrawLeftOverride = firstColumnDrawLeftOverride,
-            )
-        }
-
-        fun drawHoveredTextLine(lineStartX: Int, contentWidth: Int) {
-            drawTextLine(ctx, metrics.clippedLine, lineStartX, contentWidth, currentY)
-        }
-
-        when (alignment) {
-            Alignment.LEFT -> {
-                drawInlineButtons(ctx.scaledLeftEdge)
-                if (metrics.usesCells) {
-                    drawHoveredCellsLine(
-                        lineStartX = ctx.scaledLeftEdge,
-                        contentWidth = ctx.maxWidth,
-                        firstColumnDrawLeftOverride = ctx.scaledLeftEdge + metrics.reservedWidth,
-                    )
-                } else {
-                    drawHoveredTextLine(
-                        lineStartX = ctx.scaledLeftEdge + metrics.reservedWidth,
-                        contentWidth = metrics.lineAvailableWidth,
-                    )
-                }
-            }
-            Alignment.RIGHT -> {
-                val buttonsX = ctx.scaledLeftEdge + ctx.maxWidth - metrics.buttonsWidth
-                if (metrics.usesCells) {
-                    drawHoveredCellsLine(
-                        lineStartX = ctx.scaledLeftEdge,
-                        contentWidth = ctx.maxWidth,
-                        clipRightOverride = ctx.scaledLeftEdge + metrics.lineAvailableWidth,
-                    )
-                } else {
-                    drawHoveredTextLine(
-                        lineStartX = ctx.scaledLeftEdge + metrics.lineAvailableWidth - metrics.clippedLineWidth,
-                        contentWidth = metrics.lineAvailableWidth,
-                    )
-                }
-                drawInlineButtons(buttonsX)
-            }
-            Alignment.CENTER -> {
-                if (metrics.usesCells) {
-                    val tableWidth = lineInfo?.tableWidth ?: metrics.clippedLineWidth
-                    val contentLeft = ctx.scaledLeftEdge + (ctx.maxWidth - tableWidth) / 2
-                    drawInlineButtons(contentLeft)
-                    drawHoveredCellsLine(
-                        lineStartX = contentLeft,
-                        contentWidth = tableWidth,
-                        firstColumnDrawLeftOverride = contentLeft + metrics.reservedWidth,
-                    )
-                } else {
-                    val textWidth = minOf(lineInfo?.tableWidth ?: metrics.clippedLineWidth, metrics.lineAvailableWidth)
-                    val blockWidth = metrics.reservedWidth + textWidth
-                    val contentLeft = ctx.scaledLeftEdge + (ctx.maxWidth - blockWidth) / 2
-                    drawInlineButtons(contentLeft)
-                    drawHoveredTextLine(
-                        lineStartX = contentLeft + metrics.reservedWidth,
-                        contentWidth = metrics.lineAvailableWidth,
-                    )
-                }
-            }
-        }
+    private fun prepareLine(font: Font, line: LineInfo, width: Int, maxWidth: Int): List<PreparedText> {
+        val start = if (alignment == Alignment.RIGHT && line.usesCells()) 0
+        else alignedRowLeft(alignment, 0, maxWidth, width)
+        val contentWidth = if (alignment == Alignment.RIGHT) maxWidth else line.tableWidth ?: maxWidth
+        return if (line.usesCells()) prepareCellsLine(font, line, start, contentWidth)
+        else prepareTextLine(font, line.text, start, contentWidth)
     }
 
-    private fun drawUnhoveredOverlayLine(
-        ctx: LineRenderContext,
-        lineInfo: LineInfo?,
-        line: String,
-        currentY: Int,
-    ) {
-        val textWidth = lineInfo?.let { getLineWidth(ctx.textRenderer, it) }
-            ?: ctx.textRenderer.width(Component.literal(line))
-        val tableWidth = lineInfo?.tableWidth
-
-        val lineStartX = when (alignment) {
-            Alignment.LEFT -> ctx.scaledLeftEdge
-            Alignment.RIGHT -> if (lineInfo.usesCells()) {
-                ctx.scaledLeftEdge
-            } else {
-                ctx.scaledLeftEdge + ctx.maxWidth - textWidth
-            }
-            Alignment.CENTER -> if (lineInfo.usesCells() && tableWidth != null) {
-                ctx.scaledLeftEdge + (ctx.maxWidth - tableWidth) / 2
-            } else {
-                ctx.scaledLeftEdge + (ctx.maxWidth - textWidth) / 2
-            }
-        }
-        val contentWidth = when (alignment) {
-            Alignment.RIGHT -> ctx.maxWidth
-            else -> tableWidth ?: ctx.maxWidth
-        }
-
-        if (lineInfo.usesCells()) {
-            drawCellsLine(ctx, lineInfo!!, lineStartX, contentWidth, currentY)
-        } else {
-            drawTextLine(ctx, line, lineStartX, contentWidth, currentY)
-        }
+    private fun prepareTextLine(font: Font, text: String, start: Int, width: Int): List<PreparedText> {
+        val displayText = trimTextEndingToMaxWidth(font, text, width)
+        return if (displayText.isEmpty()) emptyList() else listOf(PreparedText(start, Component.literal(displayText)))
     }
 
-    private fun drawTextLine(
-        ctx: LineRenderContext,
-        text: String,
-        lineStartX: Int,
-        contentWidth: Int,
-        currentY: Int,
-    ) {
-        val displayText = trimTextEndingToMaxWidth(ctx.textRenderer, text, contentWidth)
-        drawStringCompat(ctx.drawContext, ctx.textRenderer, Component.literal(displayText), lineStartX, currentY, ctx.color, true)
-    }
-
-    private fun drawCellsLine(
-        ctx: LineRenderContext,
+    private fun prepareCellsLine(
+        textRenderer: Font,
         lineInfo: LineInfo,
         lineStartX: Int,
         contentWidth: Int,
-        currentY: Int,
-        clipLeftOverride: Int? = null,
         clipRightOverride: Int? = null,
         firstColumnDrawLeftOverride: Int? = null,
-    ) {
-        val textRenderer = ctx.textRenderer
+    ): List<PreparedText> = buildList {
         val tableWidth = lineInfo.tableWidth
             ?: lineInfo.cells!!.maxOf { it.xOffset + textRenderer.width(Component.literal(it.text)) }
-        val defaultClipLeft = clipLeftOverride ?: lineStartX
+        val defaultClipLeft = lineStartX
         val clipRight = clipRightOverride ?: (lineStartX + contentWidth)
         val cellOriginX = when (alignment) {
             Alignment.RIGHT -> lineStartX + contentWidth - tableWidth
@@ -876,15 +734,7 @@ class SkbGui {
             val displayTextWidth = textRenderer.width(Component.literal(displayText))
             val cellX = getCellDrawX(drawLeft, drawRight, drawWidth, displayTextWidth, isFirstColumnShifted)
 
-            drawStringCompat(
-                ctx.drawContext,
-                textRenderer,
-                Component.literal(displayText),
-                cellX,
-                currentY,
-                ctx.color,
-                true,
-            )
+            add(PreparedText(cellX, Component.literal(displayText)))
         }
     }
 
@@ -966,23 +816,21 @@ class SkbGui {
     private fun drawOverlayBackground(drawContext: GuiGraphics, screenCoords: OverlayScreenCoords) {
         if (!OverlayStyle.BACKGROUND) return
 
-        val backgroundTopColor = Color(OverlayStyle.BACKGROUND_COLOR_TOP, true).rgb
-        val backgroundBottomColor = Color(OverlayStyle.BACKGROUND_COLOR_BOTTOM, true).rgb
 
         drawContext.fillGradient(
             screenCoords.left,
             screenCoords.top,
             screenCoords.right,
             screenCoords.bottom,
-            backgroundTopColor,
-            backgroundBottomColor
+            OverlayStyle.BACKGROUND_COLOR_TOP,
+            OverlayStyle.BACKGROUND_COLOR_BOTTOM
         )
     }
 
     private fun drawOverlayBorder(drawContext: GuiGraphics, screenCoords: OverlayScreenCoords) {
         if (!OverlayStyle.BORDER) return
 
-        val borderColor = Color(OverlayStyle.BORDER_COLOR, true).rgb
+        val borderColor = OverlayStyle.BORDER_COLOR
         val borderWidth = OverlayStyle.BORDER_WIDTH.coerceIn(1..5)
         val left = screenCoords.left
         val top = screenCoords.top
@@ -997,114 +845,29 @@ class SkbGui {
         drawContext.fill(right, top, right + borderWidth, bottom, borderColor) // right
     }
 
-    private fun getHoveredLineIndex(textRenderer: Font, displayLines: List<String>, mouseX: Double, mouseY: Double): Int? {
-        val buttonLineTexts = if (GuiUtils.isInInventoryOrChat()) buttons.sortedBy { it.lineIndex }.map { it.text } else emptyList()
-        val maxWidth = getOverlayMaxWidth(textRenderer, lines, buttonLineTexts) * scale
-        val leftEdge = getLeftEdge(textRenderer, lines, buttonLineTexts).toFloat()
-        val fontHeight = textRenderer.lineHeight
-        val lineHeightPx = (fontHeight + 2) * scale
-
-        if (mouseX < leftEdge - 2 || mouseX > leftEdge + maxWidth + 2) return null
-        if (mouseY < y - 2 || mouseY > y + displayLines.size * lineHeightPx + 2) return null
-
-        val lineIndex = ((mouseY - y) / lineHeightPx).toInt()
-        return if (lineIndex in 0 until displayLines.size) lineIndex else null
+    private fun inlineActionsLeft(
+        alignment: Alignment,
+        left: Int,
+        width: Int,
+        line: LineInfo?,
+        metrics: HoveredLineMetrics,
+    ): Int {
+        val blockWidth = when (alignment) {
+            Alignment.LEFT, Alignment.RIGHT -> metrics.buttonsWidth
+            Alignment.CENTER -> if (metrics.usesCells) line?.tableWidth ?: metrics.clippedLineWidth
+            else metrics.reservedWidth + minOf(line?.tableWidth ?: metrics.clippedLineWidth, metrics.lineAvailableWidth)
+        }
+        return alignedRowLeft(alignment, left, width, blockWidth)
     }
 
-    /**
-     * Returns the LineAction if the click hits an inline action button, null otherwise.
-     * Button positions: LEFT/CENTER = buttons on left before line; RIGHT = buttons on right after line.
-     */
-    private fun getClickedLineAction(textRenderer: Font, mouseX: Double, mouseY: Double): LineAction? {
-        if (lines.none { it.actions.isNotEmpty() }) return null
-
-        val allLines = getDisplayLinesForRender()
-        val buttonLineTexts = if (GuiUtils.isInInventoryOrChat()) buttons.sortedBy { it.lineIndex }.map { it.text } else emptyList()
-        val hoveredLineIndex = getHoveredLineIndex(textRenderer, allLines, mouseX, mouseY) ?: return null
-        val lineInfo = getLineInfoByDisplayIndex(hoveredLineIndex) ?: return null
-        val actions = lineInfo.actions
-        if (actions.isEmpty()) return null
-
-        val scaleDouble = scale.toDouble()
-        val buttonsStr = actions.joinToString("") { it.text }
-        val buttonsWidth = textRenderer.width(Component.literal(buttonsStr))
-        val spaceWidth = textRenderer.width(Component.literal(" "))
-        val reservedWidth = buttonsWidth + spaceWidth
-        val maxWidth = getOverlayMaxWidth(textRenderer, lines, buttonLineTexts)
-        val lineWidth = getLineWidth(textRenderer, lineInfo)
-        val lineAvailableWidth = (maxWidth - reservedWidth).coerceAtLeast(0)
-        val clippedLineWidth = if (lineInfo.usesCells()) {
-            minOf(lineInfo.tableWidth ?: lineWidth, lineAvailableWidth)
-        } else {
-            minOf(lineWidth, lineAvailableWidth)
-        }
-
-        val maxWidthScreen = maxWidth * scaleDouble
-        val leftEdge = getLeftEdge(textRenderer, lines, buttonLineTexts).toDouble()
-        val fontHeight = textRenderer.lineHeight
-        val lineHeightPx = (fontHeight + 2) * scale
-        val lineTop = y + hoveredLineIndex * lineHeightPx
-        val lineBottom = lineTop + lineHeightPx
-
-        if (mouseY < lineTop || mouseY >= lineBottom) return null
-        val buttonsWidthScreen = buttonsWidth * scaleDouble
-
-        val buttonStartX = when (alignment) {
-            Alignment.LEFT -> leftEdge
-            Alignment.RIGHT -> leftEdge + maxWidthScreen - buttonsWidthScreen
-            Alignment.CENTER -> {
-                if (lineInfo.usesCells()) {
-                    val tableWidth = lineInfo.tableWidth ?: clippedLineWidth
-                    leftEdge + (maxWidthScreen - tableWidth * scaleDouble) / 2
-                } else {
-                    val tableWidth = clippedLineWidth
-                    val textWidth = minOf(tableWidth, lineAvailableWidth)
-                    val blockWidth = reservedWidth + textWidth
-                    val contentWidthScreen = blockWidth * scaleDouble
-                    leftEdge + (maxWidthScreen - contentWidthScreen) / 2
-                }
-            }
-        }
-
-        if (mouseX < buttonStartX || mouseX >= buttonStartX + buttonsWidthScreen) return null
-
-        var relX = mouseX - buttonStartX
-        for (action in actions) {
-            val actionWidth = textRenderer.width(Component.literal(action.text)) * scaleDouble
-            if (relX < actionWidth) return action
-            relX -= actionWidth
-        }
-        return null
-    }
-
-    /**
-     * Returns the button if (mouseX, mouseY) hits a button line, null otherwise.
-     * Uses exclusive line boundaries so a click between two lines hits neither.
-     */
-    private fun getClickedButton(textRenderer: Font, mouseX: Double, mouseY: Double): GuiButton? {
-        if (lines.isEmpty() || buttons.isEmpty()) return null
-
-        val displayLines = getAllDisplayLines()
-        val buttonLineTexts = if (GuiUtils.isInInventoryOrChat()) buttons.sortedBy { it.lineIndex }.map { it.text } else emptyList()
-        val maxWidth = getOverlayMaxWidth(textRenderer, lines, buttonLineTexts) * scale
-        val leftEdge = getLeftEdge(textRenderer, lines, buttonLineTexts).toFloat()
-
-        if (mouseX < leftEdge - 2 || mouseX > leftEdge + maxWidth + 2) return null
-
-        val fontHeight = textRenderer.lineHeight
-        val lineHeightPx = (fontHeight + 2) * scale
-
-        val totalLines = buttons.sortedBy { it.lineIndex }.size + lines.size
-        for (button in buttons) {
-            val i = button.lineIndex
-            if (i < 0 || i >= totalLines) continue
-
-            val lineTop = y + i * lineHeightPx
-            val lineBottom = y + (i + 1) * lineHeightPx - 2 // -2 to make sure line has less space to be not clickable under text in free space
-
-            if (mouseY >= lineTop && mouseY < lineBottom) {
-                return button
-            }
+    private fun getClickedLineAction(frame: RenderedOverlay, line: LineInfo, mouseX: Double): LineAction? {
+        val hitbox = frame.hitbox
+        val metrics = getHoveredLineMetrics(frame.font, line, line.text, hitbox.width, line.actions)
+        var start = inlineActionsLeft(hitbox.alignment, hitbox.left, hitbox.width, line, metrics)
+        for (action in line.actions) {
+            val width = frame.font.width(Component.literal(action.text))
+            if (hitbox.containsX(mouseX, start, width)) return action
+            start += width
         }
         return null
     }

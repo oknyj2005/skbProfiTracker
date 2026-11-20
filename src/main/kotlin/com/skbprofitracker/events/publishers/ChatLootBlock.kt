@@ -32,7 +32,11 @@ class ChatLootBlock(
     private val warned = mutableMapOf<String, Long>()
 
     fun onChat(text: String) {
-        if (ActivityBucket.current != Activity.MINING) return
+        if (ActivityBucket.bucketForPickup() != Activity.MINING) {
+            active = false
+            items = 0
+            return
+        }
 
         val now = System.currentTimeMillis()
         if (active && now - lastLineMs > STALE_MS) close()
