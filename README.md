@@ -95,6 +95,13 @@ tools/                   table generators and fetch scripts
 `data/` (price and NEU snapshots) and `reference/` (third-party sources used while
 reverse-engineering) are local only and git-ignored.
 
+## Docs
+
+* [`docs/HANDOVER.md`](docs/HANDOVER.md) — state of the project, build and deploy steps, known traps.
+* [`docs/CAPTURE_PIPELINE.md`](docs/CAPTURE_PIPELINE.md) — how an item becomes profit, gate by gate.
+* [`docs/DESIGN.md`](docs/DESIGN.md) — the design decisions behind the numbers.
+* [`docs/SLAYER_TABLE.md`](docs/SLAYER_TABLE.md) — generated slayer drop table.
+
 ## Credits
 
 * Architecture and UI framework are derived from **[Feesh](https://github.com/Sleepy-Panda/Feesh)**
