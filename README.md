@@ -44,11 +44,11 @@ Click the Session reset button twice to confirm. For a Total reset, use the conf
 | `/skbprofit loot [n]` | List recent chat loot entries |
 | `/skbprofit debug` | Toggle diagnostics and show tracker state and the loaded build |
 
-## What's new in 0.1.10
+## What's new in 0.1.11
 
-- Scrollable item rows, a hoverable cost breakdown, and consistent HUD and command controls.
-- Mining timing carries across Glacite transfers. Server-confirmed consumable uses drive mining costs.
-- Cached HUD text layout, one shared scoreboard snapshot per tick, and less work during inventory scans.
+- Bazaar deliveries and delayed manual Sack deposits are excluded from mining profit by quantity.
+- Sack compaction reconciles existing stock, and Fossil Excavator reward deliveries are excluded from mining profit.
+- Slayer costs use net coin flow, and Crystal Hollows mining starts manually.
 
 See the [changelog](CHANGELOG.md) for the full release notes.
 

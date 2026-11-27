@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.11
+
+### English
+
+- Sack notices now reconcile delayed deposits from the Sack menu, including a quick close after Insert Inventory, and from using a held Sack. Bazaar deliveries and purchased stock moved into Sacks are excluded by quantity.
+- Sack compaction accounts for the raw materials already in storage. Fossil Excavator reward deliveries are excluded from mining profit.
+- Slayer costs use net coin flow for each quest. Crystal Hollows mining starts manually, while Nucleus tracking remains available.
+- The HUD reuses item valuations as the timer advances. Gradle resolves Mojang-patched LWJGL libraries from the official Minecraft repository.
+
+### 简体中文
+
+- Sack 通知可以匹配延迟上报的存袋操作，覆盖点击 Insert Inventory 后立即关闭界面，以及手持 Sack 存袋。Bazaar 交付和转入 Sack 的已购库存按件数抵扣。
+- Sack 压缩会核对原有库存，Fossil Excavator 的结算奖励从挖矿利润中排除。
+- Slayer 按每次任务的净金币流计算成本。Crystal Hollows 的普通挖矿需要手动开始，仍可追踪 Nucleus。
+- 计时更新时面板复用物品估价。Gradle 从 Minecraft 官方仓库解析 Mojang 定制版 LWJGL。
+
 ## 0.1.10
 
 ### English
