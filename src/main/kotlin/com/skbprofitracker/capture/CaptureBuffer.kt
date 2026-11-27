@@ -22,6 +22,7 @@ class CaptureBuffer(
     private val holds = HashMap<String, Bucket>()
     private val removals = HashMap<String, Bucket>()
     private val skipped = HashMap<String, Int>()
+    private val pendingWithdrawals = HashMap<String, Bucket>()
 
     /** Stacks the player pulled out of a sack. They usually go back in a minute later, and that
      *  `[Sacks] +N` delta must not count as fresh loot. */
@@ -39,11 +40,44 @@ class CaptureBuffer(
         holds.clear()
         removals.clear()
         skipped.clear()
+        pendingWithdrawals.clear()
         returns.clear()
         compactionInputs.clear()
     }
 
     // ---- compaction pool -------------------------------------------------------------
+
+    data class SackCompaction(
+        val remainingProducts: Int,
+        val newlyAddedInputs: Int,
+        val directRemoval: Int,
+        val pooledRemoval: Int,
+    )
+
+    /**
+     * Recover the new input from a signed sack batch. For example, +27 products at a ratio of 80
+     * with a net removal of 2,100 means 60 new input units. The removed stock may predate either
+     * ledger, so leave its existing credits in place and don't count its converted form.
+     */
+    fun reconcileSackCompaction(
+        key: String,
+        products: Int,
+        ratio: Int,
+        removed: Int,
+        now: Long,
+    ): SackCompaction {
+        if (products <= 0 || ratio <= 0) return SackCompaction(products, 0, 0, 0)
+        val required = products.toLong() * ratio
+        val direct = minOf(removed.coerceAtLeast(0).toLong(), required).toInt()
+        val remaining = (required - direct).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val pooled = if (remaining > 0) takeCompactionInput(key, remaining, now, ratio, direct) else 0
+        val matched = direct.toLong() + pooled
+        if (matched == 0L) return SackCompaction(products, 0, 0, 0)
+
+        val converted = 1L + (matched - 1L) / ratio
+        val newlyAdded = converted * ratio - matched
+        return SackCompaction(products - converted.toInt(), newlyAdded.toInt(), direct, pooled)
+    }
 
     /** Remembers raw units that a compaction removed but whose product was not seen yet. */
     fun noteCompactionInput(key: String, amount: Int, now: Long) {
@@ -88,12 +122,9 @@ class CaptureBuffer(
         }
     }
 
-    /** A container that lost [amount] of [key] explains that much of the held increase. */
-    fun explain(key: String, amount: Int) {
-        val existing = holds[key] ?: return
-        existing.amount -= amount
-        if (existing.amount <= 0) holds.remove(key)
-    }
+    /** Gives older held increases first claim on this scan's container decrease. */
+    fun remainingContainerDecrease(key: String, decrease: Int): Int =
+        if (decrease > 0) decrease - cancelHold(key, decrease) else 0
 
     /** A withdrawal cancels a held pickup for the same key; returns how much was cancelled. */
     fun cancelHold(key: String, amount: Int): Int {
@@ -205,5 +236,29 @@ class CaptureBuffer(
         val consumed = minOf(existing, amount)
         if (existing == consumed) skipped.remove(key) else skipped[key] = existing - consumed
         return consumed
+    }
+
+    /** A signed withdrawal can reach the client a scan before its inventory increase. */
+    fun notePendingWithdrawal(key: String, amount: Int, now: Long) {
+        if (amount <= 0) return
+        pendingWithdrawals.entries.removeIf { now - it.value.atMs > LATE_WITHDRAWAL_MS }
+        val existing = pendingWithdrawals[key]
+        if (existing == null) pendingWithdrawals[key] = Bucket(amount, now) else existing.amount += amount
+    }
+
+    fun takePendingWithdrawal(key: String, amount: Int, now: Long): Int {
+        val existing = pendingWithdrawals[key] ?: return 0
+        if (now - existing.atMs > LATE_WITHDRAWAL_MS) {
+            pendingWithdrawals.remove(key)
+            return 0
+        }
+        val taken = minOf(existing.amount, amount)
+        existing.amount -= taken
+        if (existing.amount == 0) pendingWithdrawals.remove(key)
+        return taken
+    }
+
+    private companion object {
+        const val LATE_WITHDRAWAL_MS = 1_500L
     }
 }

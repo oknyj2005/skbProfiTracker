@@ -19,6 +19,7 @@ data class CostView(
     val perHour: Double,
     val lines: List<CostLine>,
     val coinsSpent: Double,
+    val estimatedSlayerFees: Long,
 )
 
 /**
@@ -118,8 +119,8 @@ object CostLedger {
             if (Debug.enabled) Debug.log("[cost] nucleus bundle opened with no pending materials")
             return
         }
-        val activity = ActivityBucket.bucketForPickup() ?: return
-        val bucket = BucketLedger.sliceStorage(activity, ActivityBucket.MINING_NUCLEUS)
+        if (!ActivityBucket.canBookMiningSliceLoot()) return
+        val bucket = BucketLedger.sliceStorage(Activity.MINING, ActivityBucket.MINING_NUCLEUS)
         val now = System.currentTimeMillis()
         for ((key, parked) in pendingNucleus) {
             if (now - parked.atMs > NUCLEUS_PARK_MS) {
@@ -131,7 +132,7 @@ object CostLedger {
             if (Debug.enabled) Debug.log("[cost] nucleus charged $key x${parked.amount}")
         }
         pendingNucleus.clear()
-        PersistentDataManager.saveSkbDataToFileAsync()
+        BucketLedger.saveContentChange()
     }
 
     fun isMiningConsumable(key: String): Boolean = key in MINING_CONSUMABLES
@@ -181,9 +182,9 @@ object CostLedger {
 
     fun onMiningConsumableUsed(key: String, amount: Int) {
         if (!isMiningConsumable(key) || amount <= 0) return
+        if (ActivityBucket.isCrystalHollowsArea() && !ActivityBucket.isPickupAllowed()) return
         // The player may consume it in the Hub before warping to a mining area.
         bookItemCost(Activity.MINING, key, amount)
-        ActivityBucket.onExplicitMiningStart(key)
     }
 
     private fun bookItemCost(activity: Activity, key: String, amount: Int) {
@@ -191,7 +192,7 @@ object CostLedger {
         Debug.decision("[cost] booked $key x$amount -> ${activity.name.lowercase()}")
         bucket.sessionCosts.merge(key, amount.toLong(), Long::plus)
         bucket.totalCosts.merge(key, amount.toLong(), Long::plus)
-        PersistentDataManager.saveSkbDataToFileAsync()
+        BucketLedger.saveContentChange()
     }
 
     /**
@@ -210,11 +211,11 @@ object CostLedger {
         }
         if (!keyConsumed) return
 
-        val activity = ActivityBucket.bucketForPickup() ?: return
-        val bucket = BucketLedger.sliceStorage(activity, ActivityBucket.MINING_CORPSE)
+        if (!ActivityBucket.canBookMiningSliceLoot()) return
+        val bucket = BucketLedger.sliceStorage(Activity.MINING, ActivityBucket.MINING_CORPSE)
         bucket.sessionCosts.merge(key, 1L, Long::plus)
         bucket.totalCosts.merge(key, 1L, Long::plus)
-        PersistentDataManager.saveSkbDataToFileAsync()
+        BucketLedger.saveContentChange()
     }
 
     /**
@@ -243,17 +244,7 @@ object CostLedger {
             }
         }
 
-        if (moved) PersistentDataManager.saveSkbDataToFileAsync()
-    }
-
-    fun onCoinsSpent(coins: Double) {
-        if (coins <= 0.0) return
-
-        val activity = ActivityBucket.bucketForPickup() ?: return
-        val bucket = BucketLedger.storage(activity)
-        bucket.sessionCoinsSpent += coins
-        bucket.totalCoinsSpent += coins
-        PersistentDataManager.saveSkbDataToFileAsync()
+        if (moved) BucketLedger.saveContentChange()
     }
 
     /**
@@ -273,6 +264,7 @@ object CostLedger {
 
         val entries = mutableMapOf<String, Long>()
         var coins = 0.0
+        var estimatedSlayerFees = 0L
         var seconds = 0L
         for (bucket in buckets) {
             val costs = when (mode) {
@@ -283,6 +275,10 @@ object CostLedger {
             coins += when (mode) {
                 TrackerViewMode.SESSION -> bucket.sessionCoinsSpent
                 TrackerViewMode.TOTAL -> bucket.totalCoinsSpent
+            }
+            estimatedSlayerFees += when (mode) {
+                TrackerViewMode.SESSION -> bucket.sessionEstimatedSlayerFees
+                TrackerViewMode.TOTAL -> bucket.totalEstimatedSlayerFees
             }
             seconds += when (mode) {
                 TrackerViewMode.SESSION -> bucket.sessionElapsedSeconds
@@ -299,7 +295,7 @@ object CostLedger {
         val total = lines.sumOf { it.value } + coins
         val hours = seconds / 3600.0
 
-        return CostView(total, if (hours > 0.0) total / hours else 0.0, lines, coins)
+        return CostView(total, if (hours > 0.0) total / hours else 0.0, lines, coins, estimatedSlayerFees)
     }
 
 }

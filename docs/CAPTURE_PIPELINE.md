@@ -53,7 +53,9 @@ Every rule below suppresses a *false* credit. They are ordered by how often they
 | Removal credit (10 s) | Drop and pick up, or the compactor: 160 ore → 1 block |
 | Supercraft guard | The supercrafted stack appears in the sacks list and must not count twice |
 | Auction purchase guard | `You purchased X for N coins!` / `You claimed X from …'s auction!` fence the item for 10 s |
-| Mining consumable confirmation | A right click is booked when a server inventory update confirms the decrease in the hand that used the item. Client-side block placement predictions do not count. |
+| Mining consumable confirmation | A right click is booked as a cost when a server inventory update confirms the decrease in the hand that used the item. Client-side block placement predictions do not count. Consuming the item does not start the mining clock. |
+| Purchase delivery | A receipt from a Bazaar instant buy or order claim is matched by item and amount across the sack and inventory. Matched units do not extend the activity timer. |
+| Fossil Excavator | Excavation reward chat supplies the quantities to leave out of inventory and sack gains. During the excavator screen, Mining time and costs stay unchanged. |
 | Hollows-only items | `OIL_BARREL` only counts inside Crystal Hollows, within 8 s of a treasure chest announcement |
 
 ## Time
@@ -87,15 +89,15 @@ whose decision table regressed never reaches the game.
 
 | 情况 | 消息形态 | 处理 |
 |---|---|---|
-| 原料压完后还有剩余 | 原料只出现**净值**，不出现在 Removed | 按净值记账即可，不会重复 |
-| 原料被压光（净减） | `Removed: -N 原料` 且 `Added: +X 产物` | `[sacks] compaction`：同条配对，冲减账本 |
-| 两半分在不同消息 | 一条只有产物，另一条只有原料减少 | `[sacks] pool`：原料减少进 10 分钟池子，产物入账时按压缩比冲减 |
+| 原料净增加 | 没有与成品对应的负数原料 | 保留已观察到的净增量。单看成品行无法确认其来源 |
+| 原料净减少 | `Removed: -N 原料` 且 `Added: +X 产物` | 按配方匹配库存转换，保留已记的原料，只补记本批净变化中被合成抵掉的新原料 |
+| 两半分在不同消息 | 已知压缩批次中有剩余负数原料 | 把剩余原料放入 10 分钟池子，后续匹配到的库存转换不增加利润 |
 
 跨消息池只在同一批次里确实发生过压缩、且被扣的 key 属于某个产物的原料时才启用（`ItemTable.isCompactionParent`），避免把「玩家取出原料」误当成压缩。
 
 日志（`/skbprofit debug` 打开 verbose 可看全部）：
 
 ```
-[sacks] compaction -1520 FLAWED_PERIDOT_GEM for +19 FINE_PERIDOT_GEM
-[sacks] pool -16000 ROUGH_AMETHYST_GEM for +200 FLAWED_AMETHYST_GEM
+[sacks] compaction 19 FINE_PERIDOT_GEM from -1520 FLAWED_PERIDOT_GEM, 0 pooled, +0 new input
+[sacks] compaction 27 FINE_PERIDOT_GEM from -2100 FLAWED_PERIDOT_GEM, 0 pooled, +60 new input
 ```

@@ -5,6 +5,7 @@ import com.skbprofitracker.events.publishers.InventoryItemPickupPublisher
 import com.skbprofitracker.events.publishers.PetLevelUpPublisher
 import com.skbprofitracker.events.publishers.CorpseLootPublisher
 import com.skbprofitracker.events.publishers.EssenceWatcher
+import com.skbprofitracker.events.publishers.FossilExcavation
 import com.skbprofitracker.events.publishers.NucleusLootPublisher
 import com.skbprofitracker.events.publishers.PurseWatcher
 import com.skbprofitracker.events.publishers.SacksItemPickupPublisher
@@ -81,6 +82,7 @@ class SkbMod : ClientModInitializer {
         PetLevelUpPublisher.init()
         PurseWatcher.init()
         CorpseLootPublisher.init()
+        FossilExcavation.init()
         EssenceWatcher.init()
         NucleusLootPublisher.init()
         SacksItemPickupPublisher.init()

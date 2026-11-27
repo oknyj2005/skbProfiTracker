@@ -1,7 +1,7 @@
 package com.skbprofitracker.capture
 
 /** Matches right clicks to server-confirmed stack decreases in the hand that used the item. */
-class MiningConsumableUses(private val confirmationMs: Long = 5_000L) {
+class MiningConsumableUses(private val confirmationMs: Long = 8_000L) {
     private data class PendingUse(
         val key: String,
         var count: Int,
@@ -32,6 +32,10 @@ class MiningConsumableUses(private val confirmationMs: Long = 5_000L) {
     }
 
     fun clear() = pending.clear()
+
+    fun cancel(slot: Int): Boolean = pending.remove(slot) != null
+
+    fun hasPendingUses(): Boolean = pending.isNotEmpty()
 
     fun hasPendingUse(slot: Int): Boolean = slot in pending
 

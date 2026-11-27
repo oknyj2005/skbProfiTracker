@@ -2,8 +2,6 @@ package com.skbprofitracker.price
 
 import com.google.gson.JsonParser
 import com.skbprofitracker.SkbMod
-import net.fabricmc.loader.api.FabricLoader
-import net.minecraft.client.Minecraft
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -11,7 +9,6 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Live price cache.
@@ -36,17 +33,17 @@ object PriceCache {
         Thread(runnable, "skb-profit-prices").apply { isDaemon = true }
     }
 
-    /** product id -> bazaar price per unit when selling to buy orders (insta-sell). */
-    @Volatile
-    private var bazaarInstaSell: Map<String, Double> = emptyMap()
+    private data class Prices(
+        val bazaarInstaSell: Map<String, Double> = emptyMap(),
+        val bazaarSellOffer: Map<String, Double> = emptyMap(),
+        val auctionLbin: Map<String, Double> = emptyMap(),
+        val revision: Long = 0L,
+    )
 
-    /** product id -> bazaar price per unit when buying (sell offer / lowest ask). */
     @Volatile
-    private var bazaarSellOffer: Map<String, Double> = emptyMap()
+    private var prices = Prices()
 
-    /** NEU internal id -> lowest bin. */
-    @Volatile
-    private var auctionLbin: Map<String, Double> = emptyMap()
+    internal val revision: Long get() = prices.revision
 
     @Volatile
     var lastBazaarUpdateMs: Long = 0L
@@ -77,15 +74,18 @@ object PriceCache {
      * displayed "value" means.
      */
     fun price(key: String, mode: PriceMode): Double? {
-        when (mode) {
-            PriceMode.INSTA_SELL -> bazaarInstaSell[key]?.takeIf { it > 0.0 }?.let { return it }
-            PriceMode.SELL_OFFER -> bazaarSellOffer[key]?.takeIf { it > 0.0 }?.let { return it }
+        val snapshot = prices
+        val bazaar = when (mode) {
+            PriceMode.INSTA_SELL -> snapshot.bazaarInstaSell
+            PriceMode.SELL_OFFER -> snapshot.bazaarSellOffer
         }
-        return auctionLbin[key]?.takeIf { it > 0.0 }
+        return bazaar[key]?.takeIf { it > 0.0 } ?: snapshot.auctionLbin[key]?.takeIf { it > 0.0 }
     }
 
-    fun hasBazaar(key: String): Boolean =
-        bazaarInstaSell.containsKey(key) || bazaarSellOffer.containsKey(key)
+    fun hasBazaar(key: String): Boolean {
+        val snapshot = prices
+        return key in snapshot.bazaarInstaSell || key in snapshot.bazaarSellOffer
+    }
 
     private fun refreshBazaar() {
         try {
@@ -107,8 +107,7 @@ object PriceCache {
 
             if (instaSell.isEmpty()) return
 
-            bazaarInstaSell = instaSell
-            bazaarSellOffer = sellOffer
+            prices = prices.copy(bazaarInstaSell = instaSell, bazaarSellOffer = sellOffer, revision = revision + 1)
             lastBazaarUpdateMs = System.currentTimeMillis()
             SkbMod.LOGGER.info("Bazaar prices updated: ${instaSell.size} products")
         } catch (throwable: Throwable) {
@@ -122,18 +121,18 @@ object PriceCache {
             val root = JsonParser.parseString(body)
             if (!root.isJsonObject) return
 
-            val prices = HashMap<String, Double>(8192)
+            val auctionLbin = HashMap<String, Double>(8192)
             for ((id, element) in root.asJsonObject.entrySet()) {
                 if (!element.isJsonPrimitive) continue
                 val value = element.asDouble
-                if (value > 0.0) prices[id] = value
+                if (value > 0.0) auctionLbin[id] = value
             }
 
-            if (prices.isEmpty()) return
+            if (auctionLbin.isEmpty()) return
 
-            auctionLbin = prices
+            prices = prices.copy(auctionLbin = auctionLbin, revision = revision + 1)
             lastAuctionUpdateMs = System.currentTimeMillis()
-            SkbMod.LOGGER.info("Auction prices updated: ${prices.size} items")
+            SkbMod.LOGGER.info("Auction prices updated: ${auctionLbin.size} items")
         } catch (throwable: Throwable) {
             SkbMod.LOGGER.warn("Failed to refresh auction prices", throwable)
         }

@@ -104,7 +104,7 @@ object GuiUtils {
 
     fun getCurrentChestName(): String? {
         val screen = SkbMod.mc.getScreenCompat() ?: return null
-        if (screen !is AbstractContainerScreen<*>) return null
+        if (screen is ChatScreen) return null
         return screen.title.getUnformattedString()
     }
 
@@ -125,7 +125,7 @@ object GuiUtils {
         val title = getCurrentChestName() ?: return false
         // "Sack of Sacks" is the one the Insert inventory button lives in, and it matches neither
         // of the old shapes, so deposits made from it were never recorded.
-        return title.lowercase().contains("sack")
+        return title.contains("sack", ignoreCase = true)
     }
 
     fun isInSupercraftGui(): Boolean {

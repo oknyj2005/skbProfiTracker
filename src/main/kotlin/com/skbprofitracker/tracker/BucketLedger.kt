@@ -71,6 +71,25 @@ data class ProfitView(
  * player actually gained by levelling it.
  */
 object BucketLedger {
+    internal var contentRevision = 0L
+        private set
+    internal var timeRevision = 0L
+        private set
+    private val resetTimes = mutableMapOf<TrackerViewTarget, Long>()
+
+    internal fun saveContentChange() {
+        contentRevision++
+        PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
+    internal fun addElapsed(bucket: BucketData, seconds: Long) {
+        if (seconds <= 0) return
+        bucket.sessionElapsedSeconds += seconds
+        bucket.totalElapsedSeconds += seconds
+        timeRevision++
+        PersistentDataManager.saveSkbDataToFileAsync()
+    }
+
     /** Display order for the corpse breakdown. */
     private val CORPSE_TYPE_ORDER = listOf("lapis", "umber", "tungsten", "vanguard")
 
@@ -194,6 +213,7 @@ object BucketLedger {
         bucket.sessionItems.clear()
         bucket.sessionCosts.clear()
         bucket.sessionCoinsSpent = 0.0
+        bucket.sessionEstimatedSlayerFees = 0L
         bucket.sessionBosses = 0
         bucket.sessionCorpses = 0
         bucket.sessionCorpseTypes.clear()
@@ -204,11 +224,8 @@ object BucketLedger {
      * being fought, mining drops to the slice that is running (plain / nucleus / corpse), so
      * the per-type view and the combined view stay consistent.
      */
-    fun storage(activity: Activity): BucketData {
-        val type = liveType(activity) ?: return data().bucket(bucketName(activity))
-        val types = subTypes(activity) ?: return data().bucket(bucketName(activity))
-        return types.getOrPut(type) { BucketData() }
-    }
+    fun storage(activity: Activity, slice: String? = liveType(activity)): BucketData =
+        slice?.let { sliceStorage(activity, it) } ?: data().bucket(bucketName(activity))
 
     /** Writes into one specific sub-type bucket, creating it on demand. */
     fun sliceStorage(activity: Activity, slice: String): BucketData {
@@ -274,13 +291,20 @@ object BucketLedger {
         val key: String,
         val amount: Long,
         val atMs: Long,
+        inSession: Boolean,
     ) {
         internal var remaining = amount
-        internal val sessionRevision = bucket.sessionRevision
+        internal val sessionRevision = bucket.sessionRevision.takeIf { inSession }
         internal val totalRevision = bucket.totalRevision
     }
 
-    fun add(activity: Activity, key: String, amount: Long): ItemCredit? {
+    fun add(
+        activity: Activity,
+        key: String,
+        amount: Long,
+        slice: String? = if (activity == Activity.SLAYER) ActivityBucket.slayerPickupSlice else liveType(activity),
+        receivedAtMs: Long? = null,
+    ): ItemCredit? {
         if (amount <= 0) return null
 
         // Keys, gummi bears and the four mining consumables are payments, never loot. Mining never
@@ -308,6 +332,8 @@ object BucketLedger {
             }
         }
 
+        if (receivedAtMs != null && receivedAtMs < resetAt(activity, slice, TrackerViewMode.TOTAL)) return null
+
         var remaining = amount
         if (activity == Activity.MINING) {
             // Corpse and nucleus loot is booked from chat first; the same items then walk into the
@@ -316,12 +342,13 @@ object BucketLedger {
             if (remaining <= 0) return null
         }
 
-        val bucket = storage(activity)
-        bucket.sessionItems.merge(key, remaining, Long::plus)
+        val bucket = storage(activity, slice)
+        val inSession = receivedAtMs == null || receivedAtMs >= resetAt(activity, slice, TrackerViewMode.SESSION)
+        val credit = ItemCredit(bucket, key, remaining, System.currentTimeMillis(), inSession)
+        if (credit.sessionRevision != null) bucket.sessionItems.merge(key, remaining, Long::plus)
         bucket.totalItems.merge(key, remaining, Long::plus)
-        val credit = ItemCredit(bucket, key, remaining, System.currentTimeMillis())
         if (activity == Activity.MINING) rememberMiningAdd(credit)
-        PersistentDataManager.saveSkbDataToFileAsync()
+        saveContentChange()
         return credit
     }
 
@@ -336,7 +363,7 @@ object BucketLedger {
         bucket.sessionItems.merge(key, amount, Long::plus)
         bucket.totalItems.merge(key, amount, Long::plus)
         creditMining(key, amount)
-        PersistentDataManager.saveSkbDataToFileAsync()
+        saveContentChange()
     }
 
     private data class Credit(var amount: Long, val atMs: Long)
@@ -390,20 +417,13 @@ object BucketLedger {
         val taken = minOf(credit.remaining, amount)
         if (taken <= 0L) return 0L
         val bucket = credit.bucket
-        if (bucket.sessionRevision == credit.sessionRevision) subtract(bucket.sessionItems, credit.key, taken)
-        if (bucket.totalRevision == credit.totalRevision) subtract(bucket.totalItems, credit.key, taken)
+        val sessionMatches = bucket.sessionRevision == credit.sessionRevision
+        val totalMatches = bucket.totalRevision == credit.totalRevision
+        if (sessionMatches) subtract(bucket.sessionItems, credit.key, taken)
+        if (totalMatches) subtract(bucket.totalItems, credit.key, taken)
         credit.remaining -= taken
-        PersistentDataManager.saveSkbDataToFileAsync()
+        if (sessionMatches || totalMatches) saveContentChange()
         return taken
-    }
-
-    /** Compaction replaces raw items counted in this session and in the same slice. */
-    fun subtractCompactionInput(bucket: BucketData, key: String, amount: Long) {
-        val taken = minOf(bucket.sessionItems[key] ?: 0L, amount)
-        if (taken <= 0L) return
-        subtract(bucket.sessionItems, key, taken)
-        subtract(bucket.totalItems, key, taken)
-        PersistentDataManager.saveSkbDataToFileAsync()
     }
 
     private fun subtract(items: MutableMap<String, Long>, key: String, amount: Long) {
@@ -416,6 +436,11 @@ object BucketLedger {
         val activity = ActivityBucket.current ?: return null
         return view(activity)
     }
+
+    internal fun elapsedSeconds(target: TrackerViewTarget): Long = costBuckets(target.activity, target.filter)
+        .sumOf { bucket ->
+            if (target.mode == TrackerViewMode.SESSION) bucket.sessionElapsedSeconds else bucket.totalElapsedSeconds
+        }
 
     fun view(activity: Activity, filter: String = filterFor(activity)): ProfitView {
         val (entries, elapsedSeconds, bosses) = entries(activity, filter)
@@ -519,7 +544,7 @@ object BucketLedger {
         val bucket = data().slayerTypeBucket(key)
         bucket.sessionBosses += 1
         bucket.totalBosses += 1
-        PersistentDataManager.saveSkbDataToFileAsync()
+        saveContentChange()
     }
 
     /**
@@ -538,7 +563,7 @@ object BucketLedger {
             bucket.sessionCorpseTypes.merge(type, 1L, Long::plus)
             bucket.totalCorpseTypes.merge(type, 1L, Long::plus)
         }
-        PersistentDataManager.saveSkbDataToFileAsync()
+        saveContentChange()
     }
 
     /** Edits both counters in the displayed slice, bounded by the quantity in the selected mode. */
@@ -550,7 +575,7 @@ object BucketLedger {
         val change = delta.coerceAtLeast(-shown)
         applyDelta(bucket.sessionItems, key, change)
         applyDelta(bucket.totalItems, key, change)
-        PersistentDataManager.saveSkbDataToFileAsync()
+        saveContentChange()
     }
 
     private fun applyDelta(items: MutableMap<String, Long>, key: String, delta: Long) {
@@ -562,12 +587,16 @@ object BucketLedger {
         if (mode == TrackerViewMode.SESSION) bucket.sessionItems else bucket.totalItems
 
     fun reset(target: TrackerViewTarget) {
+        val now = System.currentTimeMillis()
+        resetTimes[target] = now
+        resetTimes[target.copy(mode = TrackerViewMode.SESSION)] = now
         for (bucket in costBuckets(target.activity, target.filter)) {
             if (target.mode == TrackerViewMode.TOTAL) {
                 bucket.totalElapsedSeconds = 0
                 bucket.totalItems.clear()
                 bucket.totalCosts.clear()
                 bucket.totalCoinsSpent = 0.0
+                bucket.totalEstimatedSlayerFees = 0L
                 bucket.totalBosses = 0
                 bucket.totalCorpses = 0
                 bucket.totalCorpseTypes.clear()
@@ -576,7 +605,25 @@ object BucketLedger {
             clearSession(bucket)
             bucket.sessionRevision++
         }
-        PersistentDataManager.saveSkbDataToFileAsync()
+        saveContentChange()
+    }
+
+    private fun resetAt(activity: Activity, slice: String?, mode: TrackerViewMode): Long {
+        val all = resetTimes[TrackerViewTarget(activity, ALL, mode)] ?: 0L
+        val specific = slice?.let { resetTimes[TrackerViewTarget(activity, it, mode)] } ?: 0L
+        return maxOf(all, specific)
+    }
+
+    internal fun recordSlayerCoinCost(slice: String, amount: Double, estimated: Boolean, receivedAtMs: Long) {
+        if (!amount.isFinite() || amount == 0.0 || receivedAtMs < resetAt(Activity.SLAYER, slice, TrackerViewMode.TOTAL)) return
+        val bucket = sliceStorage(Activity.SLAYER, slice)
+        if (receivedAtMs >= resetAt(Activity.SLAYER, slice, TrackerViewMode.SESSION)) {
+            bucket.sessionCoinsSpent += amount
+            if (estimated) bucket.sessionEstimatedSlayerFees++
+        }
+        bucket.totalCoinsSpent += amount
+        if (estimated) bucket.totalEstimatedSlayerFees++
+        saveContentChange()
     }
 
     private fun bucketName(activity: Activity): String = activity.bucketKey

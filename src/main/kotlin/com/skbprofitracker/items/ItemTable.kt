@@ -2,6 +2,7 @@ package com.skbprofitracker.items
 
 import com.google.gson.JsonParser
 import com.skbprofitracker.SkbMod
+import com.skbprofitracker.utils.ItemUtils
 
 /**
  * Display name -> price key table.
@@ -113,6 +114,12 @@ object ItemTable {
     fun get(displayName: String): Entry? = byName[displayName]
 
     fun getByKey(key: String): Entry? = byKey[key]
+
+    fun getPetDisplayName(key: String): String? {
+        val baseEntry = getByKey(key.substringBefore('+'))
+        val petName = baseEntry?.name?.let { PET_NAME.matchEntire(it)?.groupValues?.get(1) }
+        return ItemUtils.getLeveledPetDisplayNameByPetId(key, petName)
+    }
 
     /** True when [key] is the raw material of some compacted product. */
     fun isCompactionParent(key: String): Boolean = compactionParents.contains(key)

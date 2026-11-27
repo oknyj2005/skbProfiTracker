@@ -7,6 +7,8 @@
 		"AbstractContainerScreenMixin",
 		"GuiMixin",
 		"MultiPlayerGameModeMixin",
+		"ClientLevelMixin",
+		"ClientCommonPacketListenerMixin",
 		"ClientPacketListenerMixin",
 		"MinecraftMixin",
 		"EntityAccessor"

@@ -132,6 +132,7 @@ object ItemUtils {
     private val PET_ID_TO_NAME = mapOf(
         "TYRANNOSAURUS" to "T-Rex",
     )
+    private val PET_ID = Regex("([A-Z0-9_]+);([0-8])(?:\\+(100|200))?")
    
     /*
      * Converts a pet display name (e.g. T-Rex, Flying Fish) to the base ID without level information (TYRANNOSAURUS, FLYING_FISH).
@@ -166,52 +167,19 @@ object ItemUtils {
         return maxLevelPetId
     }
 
-    /*
-     * Checks if the item ID is a maxed pet ID.
-     * @param itemId The item ID to check, e.g. FLYING_FISH;4+100
-     * @returns {Boolean} True if the item is a maxed pet, false otherwise.
+    /**
+     * Base pets need a catalog name to distinguish their keys from items such as runes.
+     * A max-level key can supply its own pet name when the catalog has no entry for it.
      */
-    fun isMaxedPet(itemId: String): Boolean =
-        itemId.endsWith("+100") || itemId.endsWith("+200")
+    fun getLeveledPetDisplayNameByPetId(itemId: String, petName: String?): String? {
+        val (baseId, rarity, maxLevel) = PET_ID.matchEntire(itemId)?.destructured ?: return null
+        if (petName == null && maxLevel.isEmpty()) return null
 
-    /*
-     * Gets the pet name by pet ID.
-     * @param itemId The item ID to get the name for.
-     * @returns {String} The unformatted name for the pet, e.g. Flying Fish
-     */
-    fun getPetNameByPetId(itemId: String): String {
-        if (!isMaxedPet(itemId)) return ""
-        val basePetId = itemId.split(";")[0]
-        return PET_ID_TO_NAME[basePetId]
-            ?: CommonUtils.fromUppercaseToCapitalizedFirstLetters(basePetId, "_")
-    }
-
-    /*
-     * Gets the item display name by pet ID.
-     * @param itemId The item ID to get the display name for.
-     * @returns {String} The item display name for the pet with formatting and level, e.g. "[Lvl 100] Flying Fish"
-     */
-    fun getLeveledPetDisplayNameByPetId(itemId: String): String {
-        if (!isMaxedPet(itemId)) return ""
-        val level = itemId.split("+")[1]
-        val rarityNumericCode = itemId.split(";")[1].substringBefore("+").toInt()
-        val rarityCode = CommonUtils.getRarityColorCode(rarityNumericCode)
-        val petName = getPetNameByPetId(itemId)
-        return "${GRAY}[Lvl ${level}] ${rarityCode}${petName}"
-    }
-
-    /*
-     * Gets the item display name by pet ID.
-     * @param itemId The item ID to get the display name for.
-     * @param petName The item name to get the display name for, e.g. "Flying Fish"
-     * @returns {String} The item display name for the pet with formatting and level, e.g. "[Lvl 100] Flying Fish"
-     */
-    fun getLeveledPetDisplayNameByPetIdAndName(itemId: String, petName: String): String {
-        if (!isMaxedPet(itemId)) return ""
-        val level = itemId.split("+")[1]
-        val rarityNumericCode = itemId.split(";")[1].substringBefore("+").toInt()
-        val rarityCode = CommonUtils.getRarityColorCode(rarityNumericCode)
-        return "${GRAY}[Lvl ${level}] ${rarityCode}${petName}"
+        val name = petName ?: PET_ID_TO_NAME[baseId]
+            ?: CommonUtils.fromUppercaseToCapitalizedFirstLetters(baseId, "_")
+        val level = maxLevel.ifEmpty { "1" }
+        val color = CommonUtils.getRarityColorCode(rarity.toInt())
+        return "${GRAY}[Lvl $level] $color$name"
     }
 
     /*

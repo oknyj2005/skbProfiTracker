@@ -76,8 +76,7 @@ src/main/kotlin/com/skbprofitracker/
 │   ├── ActivityBucket.kt      # 什么时候算「在干活」、当前是哪个桶/切片
 │   ├── BucketLedger.kt        # 账本：items/costs/coins/elapsed/bosses/corpses + 视图
 │   ├── CostLedger.kt          # 成本：消耗品价表、nucleus 挂账、硬币
-│   ├── SackShadow.kt          # sack 行已记账 → 背包扫描别再记一次
-│   ├── PurchaseGuard.kt       # AH 买回来的东西不算产出
+│   ├── ActivitySignals.kt     # 合并挖掘回调，处理启动信号窗口
 │   └── ProfitOverlay.kt       # HUD：行、按钮、切片选择器、行内编辑
 ├── events/publishers/
 │   ├── InventoryItemPickupPublisher.kt   # 背包差分（200ms）
@@ -93,6 +92,8 @@ src/main/kotlin/com/skbprofitracker/
 
 **数据流**：三个入口 → `ItemTable` 查名字（查不到就丢，`[scan] unknown item`）→ 桶归属 → `ScanRules` 七道闸 → `BucketLedger.add` → `data.json`。
 
+背包和材料袋通过 `capture/NonLootDeliveries.kt` 共用实收数量，排除 Bazaar 领取和 Fossil Excavator 结算的物品。Bazaar 下单或成交提醒不产生实收记录。
+
 ---
 
 ## 5. 采集规则（改之前必读）
@@ -103,16 +104,16 @@ src/main/kotlin/com/skbprofitracker/
 |---|---|---|
 | 总数法（只存 key→数量） | 不看槽位，只看每个 key 的总数变化 | 换槽/自动整理不会误判 |
 | 200ms 扫描 + 界面过渡重建基线 | 界面开/关那一拍只更新基线不记账 | 不重建会在关背包瞬间记一批假收益 |
-| 容器抵消 | `增量 − min(增量, 容器减少)` | 从箱子拿东西会被记成掉落 |
+| 容器抵消 | 先用容器减少量解释上一轮挂起增量，余量才可抵消本轮增量 | 同一份减少量可能抵消两笔 |
 | 挂起 1 秒（`PENDING_INCREASE_MS`） | 界面里的增量先挂起，等容器解释 | 锻造/菜单领取被记成产出 |
 | sack 界面跳过 | 开着 sacks 界面时背包变多 → 一定是取出 | Oil Barrel 反复虚增的根源 |
 | `[Sacks]` 双半边 | 一条消息可能同时有 `Added` 和 `Removed`，**先减后加** | 取出不撤销 |
 | 压缩配对 | 产物 + 同消息原料减少 → 扣原料；跨消息用 10 分钟压缩池 | 自动压缩机双倍 |
 | 借出返还（`noteReturn`） | `[Sacks] -N` 记「可能还回来」，后续 `+N` 先抵 | 取出再放回会记成新产出 |
-| 取出即撤销（`undoRecentCredit`） | 15 秒内刚被扫描记过的同 key，先撤 | sack→箱子那类虚增 |
+| 取出即撤销（`undoRecentCredit`） | 按切片和数量抵扣 15 秒内的同 key。剩余有符号的取出量可匹配晚到的背包更新 | sack→箱子那类虚增 |
 | SupercraftGuard | 合成产物 10s/35s 内不计 | 自己合成算收益 |
 | 药水去重 2.5s | 头颅「预测放置」会产生两次减少 | 一瓶 Fiesta 记 5M |
-| 两次强信号启动 | 3 秒内两次才开表；传送清零 | 点一下就开表 |
+| 两次强信号启动 | 3 秒内两次才开表；同一挖掘回调合并，宽限结束后重新判断 | 点一下就开表 |
 | 喝挖矿药 = 显式开始 | 记成本 + 立即开始（无桶则挂起 5 分钟） | 忘了开表 |
 
 ---
@@ -146,9 +147,9 @@ src/main/kotlin/com/skbprofitracker/
 
 1. **游戏内回归检查**。验证切片物品编辑、`All` 只读、Nucleus 秒表、挖矿药水成本与开表，以及重置确认的目标。
 2. **Nucleus 完整跑一次**：开关打开 → 放水晶 → 开宝箱 → 关开关，看 `Nucleus` 切片的利润与时间是否合理。
-3. **essence 精度**：`EssenceWatcher` 1.5 秒内同数量会被压掉一次（与 Feesh 一致），如果实测漏得多再改成"每次 action bar 变化都记"。
+3. **化石精粹精度**：打开 `/skbprofit debug`，用 Bazaar 前后余额验证单块和快速连续挖掘，并对照 `latest.log` 的 `[fossil]` 目标方块、服务器更新和动作栏时间。
 4. **`RemovalBook` 重构**（可选）：现在有五套抵扣机制（移除信用 / 借出返还 / 跳过取出 / 挂起增量 / 压缩池），语义重叠，长期应该合成一个"物品借还账本"。
-5. **反向双计对冲**：影子只挡「sack 先、背包后」；若背包先记、sack 消息后到，仍可能双计（目前靠 `undoRecentCredit` 兜 15 秒内的）。
+5. **Sacks 游戏内回归**：检查同名掉落分别进背包和 sack，以及先到和晚到的带符号取出消息。
 6. **Modrinth 上架**（用户提过）：需要 project id + token。
 
 ---

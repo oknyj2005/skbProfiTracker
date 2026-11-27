@@ -3,7 +3,10 @@ package com.skbprofitracker.mixin;
 import com.skbprofitracker.events.EventBus;
 import com.skbprofitracker.events.models.InteractActionType;
 import com.skbprofitracker.events.models.PlayerInteractEvent;
+import com.skbprofitracker.events.publishers.EssenceWatcher;
 import com.skbprofitracker.tracker.ActivityBucket;
+import com.skbprofitracker.utils.Debug;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.InteractionHand;
@@ -30,25 +33,29 @@ public class MultiPlayerGameModeMixin {
         EventBus.INSTANCE.publish(new PlayerInteractEvent(InteractActionType.USE_BLOCK, hand == InteractionHand.MAIN_HAND));
     }
 
-    @Inject(method = "destroyBlock", at = @At("HEAD"))
-    private void skbprofitracker$onDestroyBlock(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        ActivityBucket.INSTANCE.onStrongSignal("destroyBlock");
-    }
-
-    // Holding the mouse button only produces destroyBlock() once a block actually pops, so the
-    // two methods below keep the window open while the player is chewing through a wall.
-    @Inject(method = "startDestroyBlock", at = @At("HEAD"))
+    @Inject(method = "startDestroyBlock", at = @At("RETURN"))
     private void skbprofitracker$onStartDestroyBlock(BlockPos pos, net.minecraft.core.Direction direction, CallbackInfoReturnable<Boolean> cir) {
-        ActivityBucket.INSTANCE.onStrongSignal("startDestroyBlock");
+        if (cir.getReturnValueZ()) {
+            ActivityBucket.INSTANCE.onMiningContact(pos.asLong());
+        }
     }
 
-    @Inject(method = "continueDestroyBlock", at = @At("HEAD"))
+    @Inject(method = "startDestroyBlock", at = @At("HEAD"))
+    private void skbprofitracker$observeFossilTarget(BlockPos pos, net.minecraft.core.Direction direction, CallbackInfoReturnable<Boolean> cir) {
+        if (Debug.INSTANCE.getVerbose() && Minecraft.getInstance().level != null) {
+            EssenceWatcher.INSTANCE.observeFossilTarget(pos, Minecraft.getInstance().level.getBlockState(pos));
+        }
+    }
+
+    @Inject(method = "continueDestroyBlock", at = @At("RETURN"))
     private void skbprofitracker$onContinueDestroyBlock(BlockPos pos, net.minecraft.core.Direction direction, CallbackInfoReturnable<Boolean> cir) {
-        ActivityBucket.INSTANCE.onStrongSignal("continueDestroyBlock");
+        if (cir.getReturnValueZ()) {
+            ActivityBucket.INSTANCE.onMiningContact(pos.asLong());
+        }
     }
 
     @Inject(method = "attack", at = @At("HEAD"))
     private void skbprofitracker$onAttack(Player player, Entity target, CallbackInfo ci) {
-        ActivityBucket.INSTANCE.onStrongSignal("attack");
+        ActivityBucket.INSTANCE.onAttack();
     }
 }

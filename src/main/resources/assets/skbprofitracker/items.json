@@ -1838,6 +1838,21 @@
       "name": "Powder Pie",
       "key": "MINING_PUMPKIN",
       "color": "§a"
+    },
+    {
+      "name": "Jungle Key",
+      "key": "JUNGLE_KEY",
+      "color": "§5"
+    },
+    {
+      "name": "Precursor Apparatus",
+      "key": "PRECURSOR_APPARATUS",
+      "color": "§5"
+    },
+    {
+      "name": "Re-heated Gummy Polar Bear",
+      "key": "REHEATED_GUMMY_POLAR_BEAR",
+      "color": "§a"
     }
   ]
 }

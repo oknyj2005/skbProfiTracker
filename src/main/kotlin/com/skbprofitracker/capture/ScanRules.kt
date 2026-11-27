@@ -16,7 +16,7 @@ enum class RemovalVerdict {
     /** Nothing is open: the item was really spent, so charge it and credit the removal. */
     COST_AND_CREDIT,
 
-    /** A sack screen swallowed the stack; it will be reported on the next `[Sacks] +` line. */
+    /** Items moved into a sack and will be reported on a `[Sacks] +` line. */
     DEPOSIT,
 
     /** Titled menu (drill anvil, forge, pets) or Hypixel's own menu: the item is gone for good. */
@@ -45,12 +45,19 @@ enum class AddVerdict {
 }
 
 object ScanRules {
+    internal const val POST_SACK_DEPOSIT_MS = 2_000L
 
-    /** A decrease seen while no screen is open is real spending. */
-    fun removalVerdict(screen: ScreenKind): RemovalVerdict = when (screen) {
-        ScreenKind.NONE -> RemovalVerdict.COST_AND_CREDIT
-        ScreenKind.SACK -> RemovalVerdict.DEPOSIT
-        ScreenKind.CONTAINER, ScreenKind.CUSTOM_MENU, ScreenKind.CONVERSION -> RemovalVerdict.IGNORE
+    fun removalVerdict(
+        screen: ScreenKind,
+        msSinceSackClosed: Long = Long.MAX_VALUE,
+        postSackDepositMs: Long = POST_SACK_DEPOSIT_MS,
+        handSackUsedRecently: Boolean = false,
+        leavingSackGui: Boolean = false,
+    ): RemovalVerdict = when {
+        leavingSackGui || screen == ScreenKind.SACK -> RemovalVerdict.DEPOSIT
+        screen != ScreenKind.NONE -> RemovalVerdict.IGNORE
+        msSinceSackClosed < postSackDepositMs || handSackUsedRecently -> RemovalVerdict.DEPOSIT
+        else -> RemovalVerdict.COST_AND_CREDIT
     }
 
     /**
@@ -59,15 +66,6 @@ object ScanRules {
      */
     fun containerExplained(increase: Int, containerDecrease: Int): Int =
         minOf(increase, maxOf(containerDecrease, 0))
-
-    /**
-     * A `[Sacks] +N` line for an item the player just put back by hand only counts the part that
-     * was not already in the inventory. Returns (fresh amount, deposit left over).
-     */
-    fun netAgainstDeposit(amount: Int, available: Int): Pair<Int, Int> {
-        val used = minOf(amount, available)
-        return (amount - used) to (available - used)
-    }
 
     fun addVerdict(
         activity: ActivityKind,

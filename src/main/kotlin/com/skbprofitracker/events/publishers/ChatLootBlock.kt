@@ -32,7 +32,7 @@ class ChatLootBlock(
     private val warned = mutableMapOf<String, Long>()
 
     fun onChat(text: String) {
-        if (ActivityBucket.bucketForPickup() != Activity.MINING) {
+        if (!ActivityBucket.canBookMiningSliceLoot()) {
             active = false
             items = 0
             return

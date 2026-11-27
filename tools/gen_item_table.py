@@ -134,6 +134,14 @@ MINING_CONSUMABLES = [
     ("Powder Pie", "MINING_PUMPKIN"),
 ]
 
+# Pure cost items that are never loot, but the inventory scanner still needs their display names
+# so it can see them leave the inventory when spent on the Crystal Nucleus or during Slayer.
+COST_ITEMS = [
+    ("Jungle Key", "JUNGLE_KEY"),
+    ("Precursor Apparatus", "PRECURSOR_APPARATUS"),
+    ("Re-heated Gummy Polar Bear", "REHEATED_GUMMY_POLAR_BEAR"),
+]
+
 # Books that only ever drop from one specific source, so there is no need to guess a name from
 # the enchantment id. Ice Cold I is the only book a frozen corpse prints.
 FIXED_BOOKS = [
@@ -286,6 +294,8 @@ def mining_rows() -> list[dict]:
     for name, key in ESSENCES:
         items.append({"name": name, "key": key})
     for name, key in MINING_CONSUMABLES:
+        items.append({"name": name, "key": key})
+    for name, key in COST_ITEMS:
         items.append({"name": name, "key": key})
     return items
 

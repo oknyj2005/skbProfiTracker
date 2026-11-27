@@ -33,13 +33,13 @@ object SkbProfitCommand {
             when (args.firstOrNull()?.lowercase()) {
                 "gui" -> MoveGuis.moveAllGuis()
                 "pause" -> togglePause()
+                "start", "resume" -> startOrResume()
                 "reset" -> reset(args.getOrNull(1), args.getOrNull(2))
                 "types" -> printTypes()
                 "slayer" -> setFilter(Activity.SLAYER, args.drop(1).joinToString(" "))
                 "mining" -> setFilter(Activity.MINING, args.drop(1).joinToString(" "))
                 "mode" -> switchMode(args.getOrNull(1))
                 "price" -> switchPrice(args.getOrNull(1))
-                "nucleustime" -> switchNucleusTime(args.getOrNull(1))
                 "costs" -> printCosts()
                 "loot" -> printLoot(args.getOrNull(1))
                 "debug" -> {
@@ -161,37 +161,25 @@ object SkbProfitCommand {
     }
 
     fun togglePause() {
-        ActivityBucket.isPaused = !ActivityBucket.isPaused
+        val started = ActivityBucket.togglePause()
+        if (started && ActivityBucket.isCrystalHollowsArea() &&
+            BucketLedger.filterFor(Activity.MINING) == ActivityBucket.MINING_NUCLEUS
+        ) {
+            BucketLedger.setFilter(Activity.MINING, ActivityBucket.MINING_NORMAL)
+        }
         ProfitOverlay.invalidate()
         ChatUtils.sendLocalChat(statusLine(), true)
     }
 
-    /**
-     * Crystal Hollows time is not counted by default, so hunting for a crystal does not drag the
-     * mining coins/hour down. Turn it on to include the time when you actually run the altar.
-     */
-    private fun switchNucleusTime(raw: String?) {
-        val enabled = when (raw?.lowercase()) {
-            "on", "true", "1" -> true
-            "off", "false", "0" -> false
-            null, "toggle" -> !ActivityBucket.nucleusTimingEnabled()
-            else -> {
-                ChatUtils.sendLocalChat("§cUsage: /skbprofit nucleustime <on|off>")
-                return
-            }
-        }
-        setNucleusTime(enabled)
-        ChatUtils.sendLocalChat(
-            if (enabled) "§aCrystal Hollows time is now counted" else "§7Crystal Hollows time is no longer counted",
-        )
-    }
-
-    fun setNucleusTime(enabled: Boolean) {
-        ActivityBucket.setNucleusTiming(enabled)
-        if (enabled && ActivityBucket.current == Activity.MINING && ActivityBucket.isCrystalHollowsArea()) {
-            BucketLedger.setFilter(Activity.MINING, ActivityBucket.MINING_NUCLEUS)
+    private fun startOrResume() {
+        ActivityBucket.startOrResume()
+        if (ActivityBucket.isCrystalHollowsArea() &&
+            BucketLedger.filterFor(Activity.MINING) == ActivityBucket.MINING_NUCLEUS
+        ) {
+            BucketLedger.setFilter(Activity.MINING, ActivityBucket.MINING_NORMAL)
         }
         ProfitOverlay.invalidate()
+        ChatUtils.sendLocalChat(statusLine(), true)
     }
 
     private fun switchPrice(mode: String?) {
@@ -222,13 +210,19 @@ object SkbProfitCommand {
 
         val filter = BucketLedger.filterFor(activity)
         val view = CostLedger.view(activity, BucketLedger.viewMode, BucketLedger.priceMode, filter)
+        val costColor = if (view.totalValue > 0.0) "§c" else "§a"
+        val costSign = if (view.totalValue > 0.0) "-" else if (view.totalValue < 0.0) "+" else ""
+        val heading = if (view.totalValue < 0.0) "Cost credit" else "Costs"
 
         ChatUtils.sendLocalChat(
-            "§7Costs for §6${activity.bucketKey} / $filter §7(${BucketLedger.viewMode.name.lowercase()})§7: §c-${coins(view.totalValue)}",
+            "§7$heading for §6${activity.bucketKey} / $filter §7(${BucketLedger.viewMode.name.lowercase()})§7: " +
+                "$costColor$costSign${coins(kotlin.math.abs(view.totalValue))}",
             true,
         )
-        if (view.coinsSpent > 0.0) {
-            ChatUtils.sendLocalChat("  §ccoins §7-${coins(view.coinsSpent)} §8(purse, quest start)", true)
+        if (view.coinsSpent != 0.0 || view.estimatedSlayerFees > 0) {
+            val label = if (activity == Activity.SLAYER) "Slayer coin flow" else "Coins spent"
+            val sign = if (view.coinsSpent < 0.0) "+" else if (view.coinsSpent > 0.0) "-" else ""
+            ChatUtils.sendLocalChat("  §7$label §6$sign${coins(kotlin.math.abs(view.coinsSpent))}", true)
         }
         for (line in view.lines) {
             val display = ItemTable.getByKey(line.name)?.name ?: line.name
@@ -305,9 +299,9 @@ object SkbProfitCommand {
         val unpriced: Int,
         val perHourAllowed: Boolean,
     ) {
-        fun isEmpty(): Boolean = seconds == 0L && value == 0.0
+        fun isEmpty(): Boolean = (!perHourAllowed || seconds == 0L) && value == 0.0 && unpriced == 0
 
-        fun hours(): String = "${seconds / 3600}h"
+        fun hours(): String = if (perHourAllowed) "${seconds / 3600}h" else "—"
 
         fun perHour(): String {
             val hours = seconds / 3600.0
@@ -364,7 +358,7 @@ object SkbProfitCommand {
 
         val view = BucketLedger.view(activity)
         val state = when {
-            ActivityBucket.isPaused -> "§cpaused"
+            ActivityBucket.isMiningPausedInUi() -> "§cpaused"
             ActivityBucket.isCountingFor(activity, view.filter) -> "§arunning"
             else -> "§7idle"
         }

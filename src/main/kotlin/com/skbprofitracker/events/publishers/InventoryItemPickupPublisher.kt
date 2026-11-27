@@ -14,7 +14,6 @@ import com.skbprofitracker.events.models.ChatEvent
 import com.skbprofitracker.events.models.ClientTickEvent
 import com.skbprofitracker.events.models.GuiClosedEvent
 import com.skbprofitracker.events.models.PlayerInteractEvent
-import com.skbprofitracker.events.models.ScreenBeforeInitEvent
 import com.skbprofitracker.events.models.WorldChangedEvent
 import com.skbprofitracker.items.ItemColors
 import com.skbprofitracker.items.ItemTable
@@ -22,8 +21,8 @@ import com.skbprofitracker.tracker.Activity
 import com.skbprofitracker.tracker.ActivityBucket
 import com.skbprofitracker.tracker.BucketLedger
 import com.skbprofitracker.tracker.CostLedger
-import com.skbprofitracker.tracker.PurchaseGuard
-import com.skbprofitracker.tracker.SackShadow
+import com.skbprofitracker.capture.PurchaseDelivery
+import com.skbprofitracker.capture.NonLootDeliveries
 import com.skbprofitracker.tracker.SupercraftGuard
 import com.skbprofitracker.utils.ChatUtils.getFormattedString
 import com.skbprofitracker.utils.Debug
@@ -32,9 +31,10 @@ import com.skbprofitracker.utils.CommonUtils
 import com.skbprofitracker.utils.GuiUtils
 import com.skbprofitracker.utils.ItemUtils
 import com.skbprofitracker.utils.WorldUtils
+import com.skbprofitracker.utils.data.BucketData
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents
 import com.skbprofitracker.utils.getScreenCompat
 import com.skbprofitracker.utils.data.PersistentDataManager
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 import net.minecraft.client.gui.screens.inventory.AnvilScreen
 import net.minecraft.client.gui.screens.inventory.BrewingStandScreen
 import net.minecraft.client.gui.screens.inventory.CraftingScreen
@@ -43,7 +43,7 @@ import net.minecraft.client.gui.screens.inventory.FurnaceScreen
 import net.minecraft.client.gui.screens.inventory.InventoryScreen
 import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.entity.player.Inventory
-import net.minecraft.world.inventory.InventoryMenu
+import net.minecraft.world.inventory.AbstractContainerMenu
 import net.minecraft.world.item.ItemStack
 
 /**
@@ -69,7 +69,6 @@ object InventoryItemPickupPublisher {
     private val buffer = CaptureBuffer(PENDING_INCREASE_MS, REMOVAL_CREDIT_MS)
     private val miningConsumableUses = MiningConsumableUses()
 
-    private const val BAZAAR_FILTER_MS = 2_000L
     private const val AUCTION_FILTER_MS = 5_000L
     private const val NPC_FILTER_MS = 2_000L
     private const val TRADE_FILTER_MS = 2_000L
@@ -91,8 +90,9 @@ object InventoryItemPickupPublisher {
     private var unseenLogged = 0
     private const val UNSEEN_LOG_LIMIT = 40
     private var lastScreenOpen = false
-    private var sackScreenOpen = false
+    private var wasInSackGui = false
     private var lastSackScreenClosedMs = 0L
+    private var lastHandSackUseMs = 0L
 
     /** When any menu was last closed; used to drop the slot rewrite that follows it. */
     private var lastScreenClosedMs = 0L
@@ -119,8 +119,6 @@ object InventoryItemPickupPublisher {
      * cannot tell apart from loot. Both halves of the trade are printed, so they are enough to
      * fence the item off for a few seconds.
      */
-    private val AUCTION_PURCHASED = Regex("^You purchased (.+) for ([\\d,]+) coins!$")
-    private val AUCTION_CLAIMED = Regex("^You claimed (.+) from .+'s auction!$")
     private val SACK_GRAB = Regex("grab x([\\d,]+) (.+?) from sacks!")
     private const val SACK_SCREEN_COOLDOWN_MS = 5_000L
 
@@ -146,8 +144,17 @@ object InventoryItemPickupPublisher {
     private var fingerprintStableSince: Long? = null
 
 
-    private var lastBazaarGuiClosedMs = 0L
-    private var lastBazaarMessageMs = 0L
+    internal val nonLootDeliveries = NonLootDeliveries()
+
+    private data class InventoryGain(
+        val key: String,
+        var amount: Int,
+        val at: Long,
+        val target: ActivityBucket.PickupTarget?,
+    )
+
+    private val pendingGains = ArrayDeque<InventoryGain>()
+    private var lastMarketClosedMs = 0L
     private var lastAuctionGuiClosedMs = 0L
     private var lastAuctionMessageMs = 0L
     private var lastNpcMessageMs = 0L
@@ -161,8 +168,12 @@ object InventoryItemPickupPublisher {
         EventBus.subscribe(GuiClosedEvent::class) { onGuiClosed(it.guiName) }
         EventBus.subscribe(ChatEvent::class) { onChat(it.unformattedText) }
         EventBus.subscribe(PlayerInteractEvent::class) { onPlayerInteract(it) }
-        EventBus.subscribe(ScreenBeforeInitEvent::class) {
-            if (it.screen is AbstractContainerScreen<*>) miningConsumableUses.clear()
+        ClientPlayConnectionEvents.DISCONNECT.register { _, _ ->
+            recentCredits.clear()
+            pendingGains.clear()
+            nonLootDeliveries.clear()
+            lastMarketClosedMs = 0L
+            resetInventoryState()
         }
     }
 
@@ -174,26 +185,64 @@ object InventoryItemPickupPublisher {
         val key = getEntryFromStack(stack)?.key ?: return
         if (!CostLedger.isMiningConsumable(key)) return
         miningConsumableUses.attempt(slot, key, stack.count, System.nanoTime() / 1_000_000L)
+        if (Debug.verbose) Debug.trace("[mining use] attempted $key x${stack.count} in slot $slot")
     }
 
-    fun onPlayerMenuSlot(slot: Int, stack: ItemStack) {
-        val inventorySlot = when {
-            slot == InventoryMenu.SHIELD_SLOT -> Inventory.SLOT_OFFHAND
-            slot in InventoryMenu.USE_ROW_SLOT_START until InventoryMenu.USE_ROW_SLOT_END ->
-                slot - InventoryMenu.USE_ROW_SLOT_START
-            else -> return
+    fun onHandSackUse() {
+        if (SkbMod.mc.getScreenCompat() != null || !WorldUtils.isInSkyblock()) return
+        val stack = SkbMod.mc.player?.mainHandItem ?: return
+        if (!stack.isEmpty && stack.hoverName.getUnformattedString().contains("sack", ignoreCase = true)) {
+            lastHandSackUseMs = System.currentTimeMillis()
         }
-        onPlayerInventorySlot(inventorySlot, stack)
     }
 
-    fun onPlayerMenuContents(stacks: List<ItemStack>) {
+    private fun playerMenu(containerId: Int): AbstractContainerMenu? {
+        val player = SkbMod.mc.player ?: return null
+        if (containerId == 0) return player.inventoryMenu
+        return player.containerMenu.takeIf { it.containerId == containerId }
+    }
+
+    fun hasPendingConsumableUses(): Boolean = miningConsumableUses.hasPendingUses()
+
+    fun onPlayerMenuSlot(containerId: Int, slot: Int, stack: ItemStack) {
+        if (!hasPendingConsumableUses()) return
+        val inventory = SkbMod.mc.player?.inventory ?: return
+        val menuSlot = playerMenu(containerId)?.slots?.getOrNull(slot) ?: return
+        if (menuSlot.container === inventory) onPlayerInventorySlot(menuSlot.containerSlot, stack)
+    }
+
+    fun onPlayerMenuContents(containerId: Int, stacks: List<ItemStack>) {
+        if (!hasPendingConsumableUses()) return
+        val inventory = SkbMod.mc.player?.inventory ?: return
+        val menu = playerMenu(containerId) ?: return
         for (slot in miningConsumableUses.slots()) {
-            val menuSlot = if (slot == Inventory.SLOT_OFFHAND) {
-                InventoryMenu.SHIELD_SLOT
-            } else {
-                slot + InventoryMenu.USE_ROW_SLOT_START
-            }
+            val menuSlot = menu.findSlot(inventory, slot).orElse(-1)
             stacks.getOrNull(menuSlot)?.let { onPlayerInventorySlot(slot, it) }
+        }
+    }
+
+    fun onHandStackMoved(offhandSwap: Boolean) {
+        if (!hasPendingConsumableUses()) return
+        val inventory = SkbMod.mc.player?.inventory ?: return
+        cancelPendingUse(inventory.selectedSlot)
+        if (offhandSwap) cancelPendingUse(Inventory.SLOT_OFFHAND)
+    }
+
+    fun onContainerClick(containerId: Int, clickedSlot: Int, changedSlots: IntArray, swapSlot: Int) {
+        val inventory = SkbMod.mc.player?.inventory ?: return
+        val menu = playerMenu(containerId) ?: return
+        fun cancelMenuSlot(index: Int) {
+            val slot = menu.slots.getOrNull(index) ?: return
+            if (slot.container === inventory) cancelPendingUse(slot.containerSlot)
+        }
+        cancelMenuSlot(clickedSlot)
+        changedSlots.forEach(::cancelMenuSlot)
+        if (swapSlot >= 0) cancelPendingUse(swapSlot)
+    }
+
+    private fun cancelPendingUse(slot: Int) {
+        if (miningConsumableUses.cancel(slot) && Debug.verbose) {
+            Debug.trace("[mining use] cancelled by a manual move in slot $slot")
         }
     }
 
@@ -203,6 +252,7 @@ object InventoryItemPickupPublisher {
             val key = getEntryFromStack(stack)?.key
             val count = if (stack.isEmpty) 0 else stack.count
             val used = miningConsumableUses.serverUpdate(slot, key, count, System.nanoTime() / 1_000_000L)
+            if (Debug.verbose) Debug.trace("[mining use] server slot $slot: ${key ?: "empty"} x$count, confirmed=$used")
             if (used != null) CostLedger.onMiningConsumableUsed(used.first, used.second)
         }
     }
@@ -212,37 +262,44 @@ object InventoryItemPickupPublisher {
         if (tickCounter < TICKS_INVENTORY_SCAN) return
         tickCounter = 0
 
-        CommonUtils.runWithCatching("Failed to detect inventory changes") { detectInventoryChanges() }
+        CommonUtils.runWithCatching("Failed to detect inventory changes") {
+            val now = System.currentTimeMillis()
+            flushInventoryGains(now)
+            detectInventoryChanges()
+            nonLootDeliveries.prune(now)
+        }
     }
 
     private fun onGuiClosed(guiName: String) {
         val now = System.currentTimeMillis()
-        if (isBazaarChestName(guiName)) lastBazaarGuiClosedMs = now
+        val marketClosing = isBazaarChestName(guiName) || isAuctionChestName(guiName)
+        val sackClosing = guiName.contains("sack", ignoreCase = true)
+        if (marketClosing) lastMarketClosedMs = now
         if (isAuctionChestName(guiName)) lastAuctionGuiClosedMs = now
+        if (sackClosing) lastSackScreenClosedMs = now
 
         // Actualize the baseline right after closing a container, so items taken out of a
         // chest are not counted on the next tick.
-        CommonUtils.runWithCatching("Failed to detect inventory changes") { detectInventoryChanges() }
+        CommonUtils.runWithCatching("Failed to detect inventory changes") {
+            flushInventoryGains(now)
+            detectInventoryChanges(marketClosing = marketClosing, sackClosing = sackClosing)
+        }
     }
 
     private fun onChat(message: String) {
         val now = System.currentTimeMillis()
         SupercraftGuard.onChat(message)
         when {
-            message.startsWith("[Bazaar]") || message.contains("Bazaar!") -> lastBazaarMessageMs = now
             message.startsWith("You bought") || message.startsWith("You sold") -> lastNpcMessageMs = now
             message.startsWith("You traded with") || message.contains("Trade completed") -> lastTradeMs = now
             message.startsWith("You Supercrafted") -> lastSupercraftMs = now
             message.contains("Auction") -> lastAuctionMessageMs = now
         }
 
-        AUCTION_PURCHASED.find(message)?.let { match ->
-            if (Debug.enabled) Debug.log("[purchase] $message")
-            PurchaseGuard.guard(match.groupValues[1])
-        }
-        AUCTION_CLAIMED.find(message)?.let { match ->
-            if (Debug.enabled) Debug.log("[purchase] $message")
-            PurchaseGuard.guard(match.groupValues[1])
+        if (WorldUtils.isInSkyblock()) PurchaseDelivery.parse(message)?.let { delivery ->
+            val keys = ItemTable.getChatKeys(delivery.name)
+            nonLootDeliveries.record(keys, delivery.amount, now, delivery.canEnterSack)
+            Debug.decision("[purchase] delivery ${delivery.amount}x ${delivery.name} -> $keys")
         }
 
         // SkyHanni (and the Sacks GUI) hand sack contents straight into the inventory, so the
@@ -257,7 +314,7 @@ object InventoryItemPickupPublisher {
         }
     }
 
-    private fun detectInventoryChanges() {
+    private fun detectInventoryChanges(marketClosing: Boolean = false, sackClosing: Boolean = false) {
         if (!WorldUtils.isInSkyblock()) {
             resetInventoryState()
             return
@@ -272,6 +329,15 @@ object InventoryItemPickupPublisher {
         val currentInventory = collectInventory()
         val currentContainer = collectContainer()
 
+        val screenOpen = SkbMod.mc.getScreenCompat() != null
+        val inSackGui = screenOpen && GuiUtils.isInSacksGui()
+        val leavingSackGui = (wasInSackGui || sackClosing) && !inSackGui
+        val screenChanged = screenOpen != lastScreenOpen
+        if (leavingSackGui) lastSackScreenClosedMs = now
+        if (screenChanged && !screenOpen) lastScreenClosedMs = now
+        wasInSackGui = inSackGui
+        lastScreenOpen = screenOpen
+
         val previousInv = previousInventory
         if (previousInv == null) {
             previousInventory = currentInventory
@@ -279,83 +345,50 @@ object InventoryItemPickupPublisher {
             return
         }
 
-        val screenOpen = SkbMod.mc.getScreenCompat() != null
-        if (screenOpen != lastScreenOpen) {
-            val closingSackScreen = !screenOpen && sackScreenOpen
-            lastScreenOpen = screenOpen
-            if (!screenOpen) {
-                lastScreenClosedMs = now
-                if (closingSackScreen) lastSackScreenClosedMs = now
-            }
-            sackScreenOpen = screenOpen && GuiUtils.isInSacksGui()
-
-            // The last click of a deposit often lands between two scans, right before the sack
-            // screen closes. Book those moves before rebuilding the baseline, otherwise the
-            // matching `[Sacks] +N` line has nothing to net against and counts as fresh loot.
-            if (closingSackScreen) {
-                for ((key, previousTotal) in previousInv) {
-                    val currentTotal = currentInventory[key] ?: 0
-                    if (currentTotal < previousTotal) {
-                        val moved = previousTotal - currentTotal
-                        SacksItemPickupPublisher.noteManualDeposit(key, moved)
-                        Debug.trace("[dep] +$moved $key (screen closing)")
-                    }
-                }
-            }
-
-            previousInventory = currentInventory
-            previousContainer = currentContainer
-            return
-        }
-
-        if (isConversionScreen() || isMenuScreen()) {
-            previousInventory = currentInventory
-            previousContainer = currentContainer
-            return
-        }
-
         val screenTitle = GuiUtils.getCurrentChestName()
-
-        val previousCont = previousContainer ?: emptyMap()
-        val containerOpen = screenTitle != null
-
-        val anyScreenOpen = SkbMod.mc.getScreenCompat() != null
+        val excavatorOpen = FossilExcavation.isOpen(screenTitle)
+        val excavatorJustClosed = FossilExcavation.justClosed(now)
+        val bazaarOpen = screenTitle?.let(::isBazaarChestName) == true
+        val marketOpen = bazaarOpen || screenTitle?.let(::isAuctionChestName) == true
+        val marketJustClosed = marketClosing || now - lastMarketClosedMs < SCREEN_CLOSE_GRACE_MS
+        val conversionOpen = isConversionScreen()
+        val menuOpen = isMenuScreen()
+        val screenKind = when {
+            inSackGui -> ScreenKind.SACK
+            conversionOpen || excavatorOpen -> ScreenKind.CONVERSION
+            GuiUtils.isInChest() -> ScreenKind.CONTAINER
+            screenOpen -> ScreenKind.CUSTOM_MENU
+            else -> ScreenKind.NONE
+        }
+        val removalVerdict = ScanRules.removalVerdict(
+            screenKind,
+            msSinceSackClosed = now - lastSackScreenClosedMs,
+            handSackUsedRecently = now - lastHandSackUseMs < ScanRules.POST_SACK_DEPOSIT_MS,
+            leavingSackGui = leavingSackGui,
+        )
 
         try {
-            val screenKind = when {
-                GuiUtils.isInSacksGui() -> ScreenKind.SACK
-                containerOpen -> ScreenKind.CONTAINER
-                anyScreenOpen -> ScreenKind.CUSTOM_MENU
-                else -> ScreenKind.NONE
+            // Observe transfers before rebuilding the baseline, including direct menu switches.
+            if (removalVerdict == RemovalVerdict.DEPOSIT || (!screenChanged && !menuOpen)) {
+                recordInventoryRemovals(previousInv, currentInventory, removalVerdict, screenTitle, leavingSackGui, now)
             }
-            val removalVerdict = ScanRules.removalVerdict(screenKind)
-            for ((key, previousTotal) in previousInv) {
-                val currentTotal = currentInventory[key] ?: 0
-                if (currentTotal >= previousTotal) continue
-                val removed = previousTotal - currentTotal
-                when (removalVerdict) {
-                    RemovalVerdict.COST_AND_CREDIT -> {
-                        addPendingRemoval(key, removed)
-                        if (!CostLedger.isMiningConsumable(key) && CostLedger.isCostKey(key)) {
-                            Debug.decision("[cost] saw $key -$removed -> checking cost")
-                            CostLedger.onItemRemoved(key, removed)
-                        }
-                    }
-                    RemovalVerdict.DEPOSIT -> {
-                        SacksItemPickupPublisher.noteManualDeposit(key, removed)
-                        if (Debug.enabled) Debug.log("[menu] $key -$removed title=${screenTitle ?: "-"}")
-                    }
-                    RemovalVerdict.IGNORE -> if (Debug.enabled) {
-                        Debug.log("[menu] $key -$removed title=${screenTitle ?: "(none)"} consumed")
+            if (screenChanged) {
+                if (marketOpen || marketJustClosed || excavatorOpen || excavatorJustClosed) {
+                    for ((key, currentTotal) in currentInventory) {
+                        val increase = currentTotal - (previousInv[key] ?: 0)
+                        if (increase > 0) pendingGains.addLast(InventoryGain(key, increase, now, null))
                     }
                 }
+                return
             }
+            if (conversionOpen || menuOpen) return
 
-            // A container that lost this key explains part of the increase, possibly one scan late.
-            for ((key, previousCount) in previousCont) {
+            // Each lost unit can explain one increase, including a hold from the previous scan.
+            val remainingContainerLosses = HashMap<String, Int>()
+            for ((key, previousCount) in previousContainer.orEmpty()) {
                 val lost = previousCount - (currentContainer[key] ?: 0)
-                if (lost <= 0) continue
-                consumePendingIncrease(key, lost, now)
+                val remaining = buffer.remainingContainerDecrease(key, lost)
+                if (remaining > 0) remainingContainerLosses[key] = remaining
             }
 
             for ((key, currentTotal) in currentInventory) {
@@ -363,15 +396,28 @@ object InventoryItemPickupPublisher {
                 if (currentTotal <= previousTotal) continue
 
                 val increase = currentTotal - previousTotal
-                val containerDecrease = (previousCont[key] ?: 0) - (currentContainer[key] ?: 0)
-                val movedBetweenInventoryAndContainer = ScanRules.containerExplained(increase, containerDecrease)
+                val containerDecrease = remainingContainerLosses[key] ?: 0
+                val movedBetweenInventoryAndContainer =
+                    if (excavatorOpen) 0 else ScanRules.containerExplained(increase, containerDecrease)
                 var pickupAmount = increase - movedBetweenInventoryAndContainer
                 if (pickupAmount <= 0) continue
+
+                if (marketOpen || marketJustClosed || excavatorOpen) {
+                    // The excavator delivers rewards straight to inventory or sacks. A slot
+                    // update can precede the reward chat; let it consume the eventual receipt.
+                    val unexplained = if (excavatorOpen) pickupAmount else applyRemovalCredit(key, pickupAmount)
+                    if (unexplained > 0) {
+                        val canCredit = !excavatorOpen && (bazaarOpen || (!marketOpen && !shouldSkipPickup()))
+                        val target = if (canCredit) pickupTarget(now) else null
+                        pendingGains.addLast(InventoryGain(key, unexplained, now, target))
+                    }
+                    continue
+                }
 
                 val verdict = ScanRules.addVerdict(
                     activity = if (ActivityBucket.current == Activity.MINING) ActivityKind.MINING else ActivityKind.SLAYER,
                     screenOpen = screenOpen,
-                    sackScreenOpen = GuiUtils.isInSacksGui(),
+                    sackScreenOpen = inSackGui,
                     msSinceScreenClosed = now - lastScreenClosedMs,
                     msSinceSackClosed = now - lastSackScreenClosedMs,
                     screenCloseGraceMs = SCREEN_CLOSE_GRACE_MS,
@@ -381,13 +427,16 @@ object InventoryItemPickupPublisher {
                 if (verdict != AddVerdict.CREDIT) {
                     if (Debug.enabled) Debug.log("[scan] $verdict +$pickupAmount $key title=${screenTitle ?: "-"}")
                     if (verdict == AddVerdict.HOLD) addPendingIncrease(key, pickupAmount, now)
+                    if (verdict == AddVerdict.JUST_CLOSED && excavatorJustClosed) {
+                        pendingGains.addLast(InventoryGain(key, pickupAmount, now, null))
+                    }
                     continue
                 }
 
                 pickupAmount = applyRemovalCredit(key, pickupAmount)
                 if (pickupAmount <= 0) continue
 
-                onItemPickedUp(key, pickupAmount)
+                onItemPickedUp(key, pickupAmount, now)
             }
 
             flushPendingIncreases(now)
@@ -396,6 +445,59 @@ object InventoryItemPickupPublisher {
             // old snapshot would make the next scan book the same removal a second time.
             previousInventory = currentInventory
             previousContainer = currentContainer
+        }
+    }
+
+    private fun recordInventoryRemovals(
+        previousInventory: Map<String, Int>,
+        currentInventory: Map<String, Int>,
+        verdict: RemovalVerdict,
+        screenTitle: String?,
+        leavingSackGui: Boolean,
+        now: Long,
+    ) {
+        for ((key, previousTotal) in previousInventory) {
+            val removed = previousTotal - (currentInventory[key] ?: 0)
+            if (removed <= 0) continue
+            val removedBought = nonLootDeliveries.removeInventory(key, removed, transferredToSack = verdict == RemovalVerdict.DEPOSIT)
+            when (verdict) {
+                RemovalVerdict.COST_AND_CREDIT -> {
+                    if (removedBought > 0) {
+                        val compacted = compactedInventoryInputs(key, previousInventory, currentInventory)
+                        val possibleTransfer = removedBought - compacted
+                        if (possibleTransfer > 0) {
+                            nonLootDeliveries.recordSackTransfer(key, possibleTransfer.toInt(), now)
+                            Debug.decision("[non-loot] possible sack transfer $key x$possibleTransfer")
+                        }
+                    }
+                    addPendingRemoval(key, removed)
+                    if (!CostLedger.isMiningConsumable(key) && CostLedger.isCostKey(key)) {
+                        Debug.decision("[cost] saw $key -$removed -> checking cost")
+                        CostLedger.onItemRemoved(key, removed)
+                    }
+                }
+                RemovalVerdict.DEPOSIT -> {
+                    SacksItemPickupPublisher.noteManualDeposit(key, removed)
+                    val source = if (leavingSackGui) "leaving sack GUI" else screenTitle ?: "recent sack use or close"
+                    Debug.decision("[dep] +$removed $key ($source)")
+                }
+                RemovalVerdict.IGNORE -> if (Debug.enabled) {
+                    Debug.log("[menu] $key -$removed title=${screenTitle ?: "(none)"} consumed")
+                }
+            }
+        }
+    }
+
+    private fun compactedInventoryInputs(
+        key: String,
+        previousInventory: Map<String, Int>,
+        currentInventory: Map<String, Int>,
+    ): Long {
+        if (!ItemTable.isCompactionParent(key)) return 0L
+        return currentInventory.entries.sumOf { (product, total) ->
+            val gained = total - (previousInventory[product] ?: 0)
+            val recipe = if (gained > 0) compactionRecipe(product) else null
+            if (recipe?.first == key) gained.toLong() * recipe.second else 0L
         }
     }
 
@@ -439,8 +541,8 @@ object InventoryItemPickupPublisher {
         buffer.noteCompactionInput(key, amount, System.currentTimeMillis())
     }
 
-    fun takeCompactionInput(key: String, amount: Int, unitsPerProduct: Int, alreadyMatched: Int): Int =
-        buffer.takeCompactionInput(key, amount, System.currentTimeMillis(), unitsPerProduct, alreadyMatched)
+    fun reconcileSackCompaction(key: String, products: Int, ratio: Int, removed: Int): CaptureBuffer.SackCompaction =
+        buffer.reconcileSackCompaction(key, products, ratio, removed, System.currentTimeMillis())
 
     /**
      * A stack that left the sack may already have been booked as loot a moment earlier: taking it
@@ -450,11 +552,11 @@ object InventoryItemPickupPublisher {
     private val recentCredits = ArrayDeque<BucketLedger.ItemCredit>()
     private const val UNDO_WINDOW_MS = 15_000L
 
-    private fun undoRecentCredit(key: String, amount: Long): Long {
+    private fun undoRecentCredit(key: String, amount: Long, bucket: BucketData): Long {
         pruneRecentCredits(System.currentTimeMillis())
         var remaining = amount
         while (remaining > 0L) {
-            val index = recentCredits.indexOfLast { it.key == key && it.remaining > 0L }
+            val index = recentCredits.indexOfLast { it.bucket === bucket && it.key == key && it.remaining > 0L }
             if (index < 0) break
             val credit = recentCredits[index]
             remaining -= BucketLedger.reverseCredit(credit, remaining)
@@ -471,7 +573,7 @@ object InventoryItemPickupPublisher {
         }
     }
 
-    fun noteWithdrawal(key: String, amount: Int) {
+    fun noteWithdrawal(key: String, amount: Int, bucket: BucketData) {
         if (key.isBlank() || amount <= 0) return
 
         val explained = buffer.takeSkipped(key, amount)
@@ -479,18 +581,36 @@ object InventoryItemPickupPublisher {
             Debug.log("[withdraw] $key -$explained was already ignored while the sacks screen was open")
         }
 
-        val cancelled = buffer.cancelHold(key, amount - explained)
+        val held = buffer.cancelHold(key, amount - explained)
+        val cancelled = held + cancelPendingGain(key, amount - explained - held)
         if (cancelled > 0) {
             if (Debug.enabled) Debug.log("[withdraw] $key -$cancelled cancelled a held pickup")
         }
         val unexplained = amount - explained - cancelled
-        val undone = undoRecentCredit(key, unexplained.toLong()).toInt()
+        val undone = undoRecentCredit(key, unexplained.toLong(), bucket).toInt()
         val remaining = unexplained - undone
+        val now = System.currentTimeMillis()
         // Stacks that were never booked can come back in a later sack message.
-        if (amount > undone) buffer.noteReturn(key, amount - undone, System.currentTimeMillis())
+        if (amount > undone) buffer.noteReturn(key, amount - undone, now)
+        buffer.notePendingWithdrawal(key, remaining, now)
         if (remaining > 0 && Debug.enabled) {
-            Debug.log("[withdraw] $key -$remaining had no matching pickup, ignored")
+            Debug.log("[withdraw] $key -$remaining awaiting a matching inventory increase")
         }
+    }
+
+    private fun cancelPendingGain(key: String, amount: Int): Int {
+        if (amount <= 0) return 0
+        var remaining = amount
+        val gains = pendingGains.iterator()
+        while (remaining > 0 && gains.hasNext()) {
+            val gain = gains.next()
+            if (gain.key != key) continue
+            val used = minOf(remaining, gain.amount)
+            remaining -= used
+            gain.amount -= used
+            if (gain.amount == 0) gains.remove()
+        }
+        return amount - remaining
     }
 
     private fun addPendingIncrease(key: String, amount: Int, now: Long) {
@@ -498,16 +618,12 @@ object InventoryItemPickupPublisher {
         if (Debug.enabled) Debug.log("[hold] $key +$amount, waiting for the container to catch up")
     }
 
-    private fun consumePendingIncrease(key: String, amount: Int, now: Long) {
-        buffer.explain(key, amount)
-    }
-
     private fun flushPendingIncreases(now: Long) {
         for ((key, amount) in buffer.dueHolds(now)) {
             val credited = applyRemovalCredit(key, amount)
             if (credited <= 0) continue
             if (Debug.enabled) Debug.log("[hold] flush $key +$credited after ${PENDING_INCREASE_MS}ms, no container decrease")
-            onItemPickedUp(key, credited)
+            onItemPickedUp(key, credited, now)
         }
     }
 
@@ -520,36 +636,46 @@ object InventoryItemPickupPublisher {
      * coming back, or a compactor turning 160 ore into one block.
      */
     private fun applyRemovalCredit(key: String, amount: Int): Int =
-        buffer.takeCredit(key, amount, System.currentTimeMillis()) { compacted ->
-            val entry = ItemTable.getByKey(compacted) ?: return@takeCredit null
-            if (entry.compactRatio <= 0) return@takeCredit null
-            val parentName = entry.compactsFrom ?: return@takeCredit null
-            val parentKey = ItemTable.get(parentName)?.key ?: return@takeCredit null
-            parentKey to entry.compactRatio
-        }
+        buffer.takeCredit(key, amount, System.currentTimeMillis(), ::compactionRecipe)
 
-    private fun onItemPickedUp(key: String, amount: Int) {
+    private fun compactionRecipe(product: String): Pair<String, Int>? {
+        val entry = ItemTable.getByKey(product) ?: return null
+        if (entry.compactRatio <= 0) return null
+        val parentName = entry.compactsFrom ?: return null
+        val parentKey = ItemTable.get(parentName)?.key ?: return null
+        return parentKey to entry.compactRatio
+    }
+
+    private fun pickupTarget(at: Long): ActivityBucket.PickupTarget? =
+        if (ActivityBucket.bucketForPickup() == null) null else ActivityBucket.pickupTargetAt(at)
+
+    private fun onItemPickedUp(key: String, amount: Int, observedAt: Long) {
         Debug.trace("[pick] +$amount $key (scan)")
-        if (shouldSkipPickup()) return
-
         // A supercrafted stack coming back out of the sacks is stock the player already owned.
         val displayName = ItemTable.getByKey(key)?.name
         if (displayName != null && SupercraftGuard.guardsInventory(displayName)) return
 
-        if (PurchaseGuard.shouldSkip(key)) return
+        val target = if (shouldSkipPickup()) null else pickupTarget(observedAt)
+        pendingGains.addLast(InventoryGain(key, amount, observedAt, target))
+    }
 
-        // The sack line already credited this key a moment ago.
-        if (SackShadow.isRecent(key)) {
-            Debug.decision("[scan] skip $key +$amount (already credited by the sack line)")
-            return
+    internal fun flushInventoryGains(now: Long) {
+        while (true) {
+            val gain = pendingGains.firstOrNull() ?: break
+            if (now - gain.at < NonLootDeliveries.INVENTORY_WAIT_MS) break
+            pendingGains.removeFirst()
+            val withdrawn = buffer.takePendingWithdrawal(gain.key, gain.amount, now)
+            val available = gain.amount - withdrawn
+            val excluded = nonLootDeliveries.takeInventory(gain.key, available, gain.at)
+            if (excluded > 0) Debug.decision("[non-loot] inventory ${gain.key} -$excluded")
+            val target = gain.target ?: continue
+            val remaining = available - excluded
+            if (remaining <= 0 || !ActivityBucket.isPickupAllowed()) continue
+            val credit = BucketLedger.add(target.activity, gain.key, remaining.toLong(), target.slice, gain.at) ?: continue
+            ActivityBucket.onWeakSignal(target.activity, gain.at)
+            pruneRecentCredits(credit.atMs)
+            recentCredits.addLast(credit)
         }
-
-        val activity = ActivityBucket.bucketForPickup() ?: return
-        ActivityBucket.onWeakSignal(activity)
-
-        val credit = BucketLedger.add(activity, key, amount.toLong()) ?: return
-        pruneRecentCredits(credit.atMs)
-        recentCredits.addLast(credit)
     }
 
     private fun shouldSkipPickup(): Boolean {
@@ -557,14 +683,11 @@ object InventoryItemPickupPublisher {
         val chestName = GuiUtils.getCurrentChestName()
 
         if (chestName != null) {
-            if (isBazaarChestName(chestName)) return true
             if (isAuctionChestName(chestName)) return true
             if (GuiUtils.isInSacksGui()) return true
             if (chestName == "Pets" || chestName.contains("Hunting Box")) return true
         }
 
-        if (now - lastBazaarGuiClosedMs < BAZAAR_FILTER_MS) return true
-        if (now - lastBazaarMessageMs < BAZAAR_FILTER_MS) return true
         if (now - lastAuctionGuiClosedMs < AUCTION_FILTER_MS) return true
         if (now - lastAuctionMessageMs < AUCTION_FILTER_MS) return true
         if (now - lastNpcMessageMs < NPC_FILTER_MS) return true
@@ -675,10 +798,17 @@ object InventoryItemPickupPublisher {
     private fun resetInventoryState() {
         previousInventory = null
         previousContainer = null
+        lastScreenOpen = false
+        wasInSackGui = false
+        lastSackScreenClosedMs = 0L
+        lastHandSackUseMs = 0L
         isInventoryLoaded = false
         lastFingerprint = null
         fingerprintStableSince = null
         buffer.clear()
+        if (Debug.verbose && hasPendingConsumableUses()) {
+            Debug.trace("[mining use] pending slots cleared on inventory reset: ${miningConsumableUses.slots()}")
+        }
         miningConsumableUses.clear()
     }
 

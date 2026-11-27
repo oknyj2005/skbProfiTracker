@@ -11,12 +11,15 @@ import com.skbprofitracker.utils.data.PersistentDataManager
  */
 object ItemColors {
     private const val DEFAULT = "§f"
+    internal var revision = 0L
+        private set
 
     fun remember(key: String, prefix: String?) {
         if (prefix.isNullOrBlank()) return
 
         val colors = PersistentDataManager.skbprofitrackerData.itemColors
         if (colors.put(key, prefix) != prefix) {
+            revision++
             PersistentDataManager.saveSkbDataToFileAsync()
         }
     }

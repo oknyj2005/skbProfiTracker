@@ -23,6 +23,14 @@ java -cp "$TOOLCP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
     src/main/kotlin/com/skbprofitracker/capture/ScanRules.kt \
     src/main/kotlin/com/skbprofitracker/capture/CaptureBuffer.kt \
     src/main/kotlin/com/skbprofitracker/capture/MiningConsumableUses.kt \
+    src/main/kotlin/com/skbprofitracker/capture/EssenceDeduper.kt \
+    src/main/kotlin/com/skbprofitracker/capture/ExcavationRewardBlock.kt \
+    src/main/kotlin/com/skbprofitracker/capture/NonLootDeliveries.kt \
+    src/main/kotlin/com/skbprofitracker/capture/SackDeposits.kt \
+    src/main/kotlin/com/skbprofitracker/capture/SlayerCoinFlow.kt \
+    src/main/kotlin/com/skbprofitracker/events/publishers/ChatLootParser.kt \
+    src/main/kotlin/com/skbprofitracker/tracker/ActivitySignals.kt \
+    src/main/kotlin/com/skbprofitracker/tracker/CrystalHollowsGate.kt \
     src/main/kotlin/com/skbprofitracker/tracker/GlaciteTravel.kt \
     src/main/kotlin/com/skbprofitracker/tracker/ResetConfirmation.kt \
     src/main/kotlin/com/skbprofitracker/utils/enums/Alignment.kt \

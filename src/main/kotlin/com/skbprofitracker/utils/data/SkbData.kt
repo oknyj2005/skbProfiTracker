@@ -51,9 +51,11 @@ data class BucketData(
     /** Consumables keyed by bazaar id, priced live like the income side. */
     val sessionCosts: MutableMap<String, Long> = mutableMapOf(),
     val totalCosts: MutableMap<String, Long> = mutableMapOf(),
-    /** Coin costs (slayer quest start, auto-slayer) that are not tied to an item. */
+    /** Signed coin cost. New Slayer combat gains reduce this balance. */
     var sessionCoinsSpent: Double = 0.0,
     var totalCoinsSpent: Double = 0.0,
+    var sessionEstimatedSlayerFees: Long = 0L,
+    var totalEstimatedSlayerFees: Long = 0L,
     /** Completed bosses, so the panel can show a per-kill average next to the per-hour one. */
     var sessionBosses: Long = 0,
     var totalBosses: Long = 0,

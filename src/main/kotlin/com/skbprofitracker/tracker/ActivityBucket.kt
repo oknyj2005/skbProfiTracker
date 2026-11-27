@@ -4,6 +4,7 @@ import com.skbprofitracker.SkbMod
 import com.skbprofitracker.events.EventBus
 import com.skbprofitracker.events.models.ClientTickEvent
 import com.skbprofitracker.events.models.WorldChangedEvent
+import com.skbprofitracker.events.publishers.FossilExcavation
 import com.skbprofitracker.items.ItemTable
 import com.skbprofitracker.price.PriceCache
 import com.skbprofitracker.utils.Debug
@@ -134,35 +135,36 @@ object ActivityBucket {
         RIFTSTALKER("Riftstalker Bloodfiend", setOf("Stillgore Château", "Stillgore Chateau")),
     }
 
-    private data class PendingMiningStart(val source: String, val expiresAt: Long)
-
-    private var pendingMiningStart: PendingMiningStart? = null
     private var pendingGlaciteTransfer: GlaciteTravel.Transfer? = null
-    private const val PENDING_START_MS = 300_000L
+
+    private val gate = CrystalHollowsGate(
+        autoResumeSignals = AUTO_RESUME_SIGNALS,
+        autoResumeWindowMs = AUTO_RESUME_WINDOW_MS,
+    )
 
     /** Manual pause stops the timer and the ledger, as opposed to the automatic grace. */
-    var isPaused: Boolean = false
+    var isPaused: Boolean
+        get() = gate.isPaused
         set(value) {
-            field = value
-            if (value) {
-                pendingMiningStart = null
-                pendingGlaciteTransfer = null
-                clearSignals()
-            }
+            if (value) pendingGlaciteTransfer = null
+            gate.setGlobalPaused(value)
+            if (value) lastAttackMs = 0L
+            recordBucket(System.currentTimeMillis())
         }
 
     /**
-     * Timestamps of recent strong signals, used to tell "I am actually mining" from "I hit a
-     * block on the way past". A manual pause survives the latter but not ten blocks in ten
-     * seconds, which is the cheapest unambiguous proof of sustained work.
+     * Session-level toggle for plain mining inside Crystal Hollows.
+     * Always starts false on launch, world change, disconnect, or global pause.
      */
-    private val recentStrongSignals = ArrayDeque<Long>()
+    var hollowsMiningActive: Boolean
+        get() = gate.hollowsMiningActive
+        set(value) {
+            gate.setHollowsMiningActive(value)
+            if (!value) lastAttackMs = 0L
+            recordBucket(System.currentTimeMillis())
+        }
 
-    private const val START_WINDOW_MS = 3_000L
-    private const val START_SIGNALS = 2
     private const val TELEPORT_SQR = 64.0 * 64.0
-    private var pendingStartMs = 0L
-    private var pendingStartCount = 0
     private var lastPosX = 0.0
     private var lastPosY = 0.0
     private var lastPosZ = 0.0
@@ -182,9 +184,11 @@ object ActivityBucket {
 
     /** Last time the player actually swung at or damaged a mob; purse gains are gated on it. */
     private var lastAttackMs = 0L
-    private var lastSignalMs = 0L
+    private val lastSignalMs: Long get() = gate.lastSignalMs
 
-    private data class BucketMark(val at: Long, val activity: Activity?)
+    internal data class PickupTarget(val activity: Activity, val slice: String?)
+
+    private data class BucketMark(val at: Long, val target: PickupTarget?)
 
     /** Hypixel batches sack changes for up to a minute, so credits are attributed to the
      * bucket that was running when the covered window started. */
@@ -195,18 +199,20 @@ object ActivityBucket {
     private var lastStateSignature = ""
     /** Which action last started the clock; printed on every state change so a surprise
      *  start can be traced back without enabling verbose logging first. */
-    private var lastSignalSource = "none"
-    private var hasStrongSignal = false
+    private val lastSignalSource: String get() = gate.lastSignalSource
+    private val hasStrongSignal: Boolean get() = gate.hasStrongSignal
     private var slayerQuest: SlayerType? = null
 
     /** The type fought most recently, kept after the quest line disappears so the completion
      * message that ends a boss can still be attributed to the right bucket. */
-    var lastSlayerTypeName: String? = null
-        private set
+    private var lastSlayerTypeName: String? = null
 
     /** The slayer type being fought right now ("Inferno Demonlord", "Revenant Horror", ...), or null. */
     val slayerTypeName: String?
         get() = slayerQuest?.questName
+
+    internal val slayerPickupSlice: String?
+        get() = lastSlayerTypeName.takeIf { current == Activity.SLAYER }
 
     /** Every slayer type the mod knows about, so the chat menu can list them before any data exists. */
     val slayerTypeNames: List<String>
@@ -223,6 +229,7 @@ object ActivityBucket {
         EventBus.subscribe(WorldChangedEvent::class) { onWorldChanged() }
         ClientPlayConnectionEvents.DISCONNECT.register { _, _ ->
             pendingGlaciteTransfer = null
+            bucketHistory.clear()
             resetWorldState()
         }
     }
@@ -233,87 +240,57 @@ object ActivityBucket {
         BucketLedger.addBossKill(lastSlayerTypeName)
     }
 
-    /**
-     * Drinking a mining consumable is an explicit "I am starting a run" action, so it starts the
-     * clock on its own instead of waiting for the second swing of a pickaxe. It also resumes a
-     * manual pause: nobody drinks a Fiesta Flask to keep staring at a frozen overlay.
-     *
-     * Potions are usually drunk in the Hub straight after buying them, where no bucket exists yet,
-     * so the request is parked and applied as soon as the player warps into a mining area.
-     */
-    fun onExplicitMiningStart(source: String) {
+    fun onMiningContact(position: Long) {
+        if (current != Activity.MINING || SkbMod.mc.getScreenCompat() != null) return
+        val inHollows = isCrystalHollowsArea()
+        if (inHollows && !hollowsMiningActive) return
         val now = System.currentTimeMillis()
-        if (current != Activity.MINING) {
-            pendingMiningStart = PendingMiningStart(source, now + PENDING_START_MS)
-            Debug.log("[signal] $source is waiting for a mining bucket")
-            return
-        }
-        startMiningClock(source, now)
+        val wasPaused = isPaused
+        val previousSignalMs = lastSignalMs
+        val outcome = gate.onMiningContact(position, now, graceMs(Activity.MINING), inHollows)
+        logStrongSignalOutcome(outcome, wasPaused, previousSignalMs, "mining", now)
     }
 
-    private fun startMiningClock(source: String, now: Long) {
-        pendingMiningStart = null
-        if (isPaused) {
-            isPaused = false
-            Debug.log("[signal] $source resumed the tracker")
-        }
-        hasStrongSignal = true
-        lastSignalMs = now
-        lastSignalSource = source
-        Debug.log("[signal] $source started the timer")
-    }
-
-    fun onStrongSignal(source: String = "unknown") {
-        val now = System.currentTimeMillis()
-
-        // A GUI eats the click, so a destroy/attack packet while a screen is open cannot be real
-        // mining. Buying a flask in a shop was enough to start the timer once, which is exactly
-        // the kind of one-off that makes a mining session look inflated.
-        if (SkbMod.mc.getScreenCompat() != null) {
-            if (Debug.enabled) Debug.log("[signal] ignored $source (screen open)")
-            return
-        }
-
+    fun onAttack() {
+        if (SkbMod.mc.getScreenCompat() != null) return
         val activity = current ?: return
-        if (source == "attack") lastAttackMs = now
-
-        // Keep collecting even while paused: the burst check below needs them.
-        recentStrongSignals.addLast(now)
-        while (recentStrongSignals.isNotEmpty() && now - recentStrongSignals.first() > AUTO_RESUME_WINDOW_MS) {
-            recentStrongSignals.removeFirst()
+        val inHollows = isCrystalHollowsArea()
+        if (activity == Activity.MINING && inHollows && !hollowsMiningActive) return
+        val now = System.currentTimeMillis()
+        lastAttackMs = now
+        if (activity != Activity.MINING) {
+            val wasPaused = isPaused
+            val previousSignalMs = lastSignalMs
+            val outcome = gate.onStrongSignal(
+                now = now,
+                graceMs = graceMs(activity),
+                source = "attack",
+                isMining = false,
+                inCrystalHollows = inHollows,
+                slayerStarted = activity == Activity.SLAYER && slayerQuest != null,
+            )
+            logStrongSignalOutcome(outcome, wasPaused, previousSignalMs, "attack", now)
         }
+    }
 
-        if (isPaused) {
-            // Two things un-pause: starting to slay inside a running quest, or a sustained
-            // burst of work. A single block or a mob on the way past must not undo a pause.
-            val slayerStarted = activity == Activity.SLAYER && slayerQuest != null
-            val sustained = recentStrongSignals.size >= AUTO_RESUME_SIGNALS
-            if (!slayerStarted && !sustained) return
-
-            isPaused = false
-            if (Debug.enabled) Debug.log("[pause] auto-resumed after ${recentStrongSignals.size} signals")
+    private fun logStrongSignalOutcome(
+        outcome: CrystalHollowsGate.SignalOutcome,
+        wasPaused: Boolean,
+        previousSignalMs: Long,
+        source: String,
+        now: Long,
+    ) {
+        if (outcome == CrystalHollowsGate.SignalOutcome.IGNORED || outcome == CrystalHollowsGate.SignalOutcome.PAUSED) return
+        if (wasPaused && !isPaused) {
+            if (Debug.enabled) Debug.log("[pause] auto-resumed after ${gate.recentStrongSignalCount} signals")
+            recordBucket(now)
         }
-        if (Debug.enabled && (lastSignalMs == 0L || now - lastSignalMs > 10_000L)) {
-            Debug.log("[signal] strong after ${if (lastSignalMs == 0L) "never" else "${(now - lastSignalMs) / 1000}s"} from $source")
+        if (Debug.enabled && (previousSignalMs == 0L || now - previousSignalMs > 10_000L)) {
+            Debug.log("[signal] strong after ${if (previousSignalMs == 0L) "never" else "${(now - previousSignalMs) / 1000}s"} from $source")
         }
-        // One click can be a menu, an NPC or a stray swing. Real work repeats within a tick or
-        // two, so the session only opens after a second signal inside [START_WINDOW_MS].
-        if (!hasStrongSignal) {
-            if (now - pendingStartMs > START_WINDOW_MS) {
-                pendingStartMs = now
-                pendingStartCount = 0
-            }
-            pendingStartCount++
-            if (pendingStartCount < START_SIGNALS) {
-                lastSignalMs = now
-                Debug.log("[signal] armed by $source (one more to start)")
-                return
-            }
+        if (outcome == CrystalHollowsGate.SignalOutcome.ARMED) {
+            Debug.log("[signal] armed by $source (one more to start)")
         }
-
-        lastSignalMs = now
-        hasStrongSignal = true
-        lastSignalSource = source
     }
 
     /** A coordinate jump usually ends the active window. Base Camp travel keeps its remainder. */
@@ -343,46 +320,97 @@ object ActivityBucket {
     }
 
     /** Pickups and taking damage: can extend a window but never open one. */
-    fun onWeakSignal(activity: Activity) {
+    fun onWeakSignal(activity: Activity, observedAt: Long = System.currentTimeMillis()) {
         val now = System.currentTimeMillis()
-        if (isPaused || current != activity || !hasActiveSignal(activity, now)) return
-        lastSignalMs = now
+        if (current != activity) return
+        gate.onWeakSignal(
+            now = now,
+            observedAt = observedAt,
+            graceMs = graceMs(activity),
+            isMining = activity == Activity.MINING,
+            inCrystalHollows = isCrystalHollowsArea(),
+        )
     }
 
-    /** The bucket a drop belongs to at this very moment, or null when nothing is running. */
     /** The bucket that was active at [whenMs], used to place delayed sack credits. */
-    fun bucketAt(whenMs: Long): Activity? {
-        var found: Activity? = null
+    internal fun pickupTargetAt(whenMs: Long): PickupTarget? {
+        var matched = false
+        var found: PickupTarget? = null
         for (mark in bucketHistory) {
-            if (mark.at <= whenMs) found = mark.activity else break
+            if (mark.at <= whenMs) {
+                matched = true
+                found = mark.target
+            } else {
+                break
+            }
         }
-        return found ?: current
+        return if (matched) found else currentPickupTarget()
+    }
+
+    private fun currentPickupTarget(): PickupTarget? {
+        if (!isPickupAllowed()) return null
+        val activity = current ?: return null
+        val slice = if (activity == Activity.SLAYER) slayerPickupSlice else BucketLedger.liveType(activity)
+        return PickupTarget(activity, slice)
     }
 
     private fun recordBucket(now: Long) {
+        val target = currentPickupTarget()
         val last = bucketHistory.lastOrNull()
-        if (last != null && last.activity == current && now - last.at < 1_000L) return
-        bucketHistory.addLast(BucketMark(now, current))
+        if (last != null && last.target == target && now - last.at < 1_000L) return
+        bucketHistory.addLast(BucketMark(now, target))
         while (bucketHistory.size > 1 && now - bucketHistory.first().at > HISTORY_MS) {
             bucketHistory.removeFirst()
         }
     }
 
-    fun bucketForPickup(): Activity? {
-        if (isPaused) return null
-        return current
+    /** Whether ordinary loot/pickup/timing is allowed right now. */
+    fun isPickupAllowed(): Boolean =
+        gate.isPickupAllowed(current == Activity.MINING, isCrystalHollowsArea())
+
+    /** Whether mining chat loot blocks (Nucleus / Corpse) and their key costs may be booked. */
+    fun canBookMiningSliceLoot(): Boolean =
+        gate.canBookMiningSliceLoot(current == Activity.MINING)
+
+    /** Whether the HUD and status line should treat the active tracker as paused. */
+    fun isMiningPausedInUi(): Boolean =
+        gate.isPausedInUi(current == Activity.MINING, isCrystalHollowsArea())
+
+    /** Toggles Crystal Hollows mining when in CH, or global pause everywhere else. */
+    fun togglePause(): Boolean {
+        val inHollows = isCrystalHollowsArea()
+        val started = gate.togglePause(inHollows)
+        if (!started) {
+            if (!inHollows) pendingGlaciteTransfer = null
+            lastAttackMs = 0L
+        }
+        recordBucket(System.currentTimeMillis())
+        return started
     }
 
+    /** Idempotently starts/resumes tracking for `/skbprofit start` and `/skbprofit resume`. */
+    fun startOrResume() {
+        gate.startOrResume(isCrystalHollowsArea())
+        recordBucket(System.currentTimeMillis())
+    }
+
+    /** The bucket a drop belongs to at this very moment, or null when tracking is paused or gated off. */
+    fun bucketForPickup(): Activity? =
+        if (!isPickupAllowed()) null else current
+
     fun isCounting(now: Long = System.currentTimeMillis()): Boolean {
-        if (isPaused) return false
         val activity = current ?: return false
-        // Crystal runs mostly involve moving and placing items, so their toggle drives the clock.
-        if (usesNucleusClock(activity)) return nucleusTimingEnabled()
-        return hasActiveSignal(activity, now)
+        return gate.isCounting(
+            now = now,
+            graceMs = graceMs(activity),
+            isMining = activity == Activity.MINING,
+            inCrystalHollows = isCrystalHollowsArea(),
+            excavatorOpen = activity == Activity.MINING && FossilExcavation.isOpen(),
+        )
     }
 
     private fun hasActiveSignal(activity: Activity, now: Long): Boolean =
-        hasStrongSignal && now - lastSignalMs <= graceMs(activity)
+        gate.hasActiveSignal(now, graceMs(activity))
 
     fun isCountingFor(activity: Activity, filter: String): Boolean {
         if (current != activity || !isCounting()) return false
@@ -398,12 +426,6 @@ object ActivityBucket {
         resumeGlaciteTransfer(now)
         recordBucket(now)
 
-        val pending = pendingMiningStart
-        if (pending != null) {
-            if (now > pending.expiresAt) pendingMiningStart = null
-            else if (current == Activity.MINING) startMiningClock(pending.source, now)
-        }
-
         // A boss fight is one continuous stretch of work even when no sword swing lands for a
         // while: dodging a phase, waiting out a damage window, or chasing the boss across the
         // arena can leave gaps well past a minute. The sidebar only shows "Slay the boss!"
@@ -411,10 +433,10 @@ object ActivityBucket {
         // session alive - and a boss that is ignored despawns or kills the player, which ends
         // the line on its own.
         if (bossFight && !isPaused && current == Activity.SLAYER) {
-            lastSignalMs = now
+            gate.extendActiveSignal(now)
         }
 
-        val signature = "${current?.name}|${isCounting(now)}|$isPaused"
+        val signature = "${current?.name}|${isCounting(now)}|$isPaused|$hollowsMiningActive"
         if (signature != lastStateSignature) {
             lastStateSignature = signature
             Debug.decision(
@@ -446,7 +468,7 @@ object ActivityBucket {
     }
 
     private fun isGlaciteMiningActive(now: Long): Boolean =
-        current == Activity.MINING && !isPaused && hasActiveSignal(Activity.MINING, now)
+        current == Activity.MINING && isPickupAllowed() && hasActiveSignal(Activity.MINING, now) && !FossilExcavation.isOpen()
 
     private fun resumeGlaciteTransfer(now: Long) {
         val transfer = pendingGlaciteTransfer ?: return
@@ -465,11 +487,9 @@ object ActivityBucket {
 
         pendingGlaciteTransfer = null
         val seconds = transfer.secondsToCredit(now)
-        addElapsed(BucketLedger.sliceStorage(Activity.MINING, MINING_NORMAL), seconds)
+        BucketLedger.addElapsed(BucketLedger.sliceStorage(Activity.MINING, MINING_NORMAL), seconds)
         if (now - transfer.signalAtMs <= MINING_GRACE_MS) {
-            hasStrongSignal = true
-            lastSignalMs = transfer.signalAtMs
-            lastSignalSource = transfer.signalSource
+            gate.restoreMiningSignal(transfer.signalAtMs, transfer.signalSource)
             lastCountMs = transfer.countedThroughMs + seconds * SECOND_MS
         }
         Debug.log("[signal] Glacite transfer to $world (credited ${seconds}s)")
@@ -481,28 +501,22 @@ object ActivityBucket {
         zone = ""
         closedAtMs = 0L
         slayerQuest = null
+        lastSlayerTypeName = null
         bossFight = false
         hasPos = false
-        clearSignals()
+        lastAttackMs = 0L
+        gate.onWorldReset()
     }
 
     private fun clearSignals(keepMiningClock: Boolean = false) {
-        if (!keepMiningClock) {
-            lastSignalMs = 0L
-            lastSignalSource = "none"
-            hasStrongSignal = false
-        }
         lastAttackMs = 0L
-        pendingStartMs = 0L
-        pendingStartCount = 0
-        recentStrongSignals.clear()
+        gate.clearSignals(keepMiningClock)
     }
 
     private fun refreshRegion(lines: List<String>) {
         world = WorldUtils.getWorldName().orEmpty()
         zone = WorldUtils.getZoneName().orEmpty()
         slayerQuest = readSlayerQuest(lines)
-        if (slayerQuest != null) lastSlayerTypeName = slayerQuest!!.questName
         bossFight = lines.any { it.trim() == BOSS_FIGHT_LINE }
     }
 
@@ -590,6 +604,7 @@ object ActivityBucket {
         if (resolved != null) {
             if (current != resolved) clearSignals()
             current = resolved
+            if (resolved == Activity.SLAYER) lastSlayerTypeName = slayerTypeName
             closedAtMs = now
             return
         }
@@ -612,34 +627,15 @@ object ActivityBucket {
     fun attackedRecently(windowMs: Long = 10_000L): Boolean =
         lastAttackMs != 0L && System.currentTimeMillis() - lastAttackMs <= windowMs
 
-    /** Crystal Hollows time is excluded unless the player opted in with `/skbprofit nucleustime`. */
-    fun nucleusTimingEnabled(): Boolean =
-        PersistentDataManager.skbprofitrackerData.nucleusTiming
-
-    fun setNucleusTiming(enabled: Boolean) {
-        PersistentDataManager.skbprofitrackerData.nucleusTiming = enabled
-        PersistentDataManager.saveSkbDataToFileAsync()
-    }
-
     private fun countSecond(now: Long) {
         val activity = current ?: return
         if (!isCounting(now)) return
 
-        addElapsed(timingStorage(activity), 1L)
+        BucketLedger.addElapsed(timingStorage(activity), 1L)
     }
-
-    private fun addElapsed(bucket: BucketData, seconds: Long) {
-        if (seconds <= 0L) return
-        bucket.sessionElapsedSeconds += seconds
-        bucket.totalElapsedSeconds += seconds
-        PersistentDataManager.saveSkbDataToFileAsync()
-    }
-
-    private fun usesNucleusClock(activity: Activity): Boolean =
-        activity == Activity.MINING && isCrystalHollowsArea()
 
     private fun timingSlice(activity: Activity): String? =
-        if (usesNucleusClock(activity)) MINING_NUCLEUS else BucketLedger.liveType(activity)
+        BucketLedger.liveType(activity)
 
     private fun timingStorage(activity: Activity): BucketData =
         timingSlice(activity)?.let { BucketLedger.sliceStorage(activity, it) }
@@ -656,7 +652,7 @@ object ActivityBucket {
             "${(System.currentTimeMillis() - lastSignalMs) / 1000}s ago"
         }
         val state = when {
-            isPaused -> "paused"
+            isMiningPausedInUi() -> "paused"
             isCounting() -> "counting"
             else -> "idle"
         }

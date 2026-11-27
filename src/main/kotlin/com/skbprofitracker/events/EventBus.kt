@@ -90,7 +90,8 @@ object EventBus {
                     is ChatScreen -> "Chat"
                     is InventoryScreen -> "Inventory"
                     is AbstractContainerScreen<*> -> screen.title.getUnformattedString()
-                    else -> screen.javaClass.getSimpleName()
+                    else -> screen.title.getUnformattedString().takeIf { it.contains("sack", ignoreCase = true) }
+                        ?: screen.javaClass.getSimpleName()
                 }
                 publish(GuiClosedEvent(guiName))
             }

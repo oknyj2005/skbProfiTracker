@@ -1,150 +1,144 @@
 package com.skbprofitracker.events.publishers
 
 import com.skbprofitracker.SkbMod
+import com.skbprofitracker.capture.SlayerCoinFlow
 import com.skbprofitracker.events.EventBus
 import com.skbprofitracker.events.models.ChatEvent
 import com.skbprofitracker.events.models.ClientTickEvent
+import com.skbprofitracker.events.models.GuiClosedEvent
+import com.skbprofitracker.events.models.WorldChangedEvent
+import com.skbprofitracker.tracker.Activity
 import com.skbprofitracker.tracker.ActivityBucket
 import com.skbprofitracker.tracker.BucketLedger
-import com.skbprofitracker.tracker.CostLedger
-import com.skbprofitracker.utils.ChatUtils
 import com.skbprofitracker.utils.ChatUtils.removeFormatting
 import com.skbprofitracker.utils.Debug
+import com.skbprofitracker.utils.GuiUtils
 import com.skbprofitracker.utils.WorldUtils
 import com.skbprofitracker.utils.getScreenCompat
+import java.math.BigDecimal
 
-/**
- * Watches the purse line and reports the coin costs of the tracked activities.
- *
- * A slayer quest start is the only coin cost the mod cares about, and its price is not a
- * constant: shards, mayors and slayer levels all change it. Reading the purse before and
- * after the quest start message gives the exact amount the server took, so no table has to
- * be maintained and no discount has to be modelled.
- *
- * The purse stays untouched by the mod on purpose: it only ever reads it. In the Rift the
- * scoreboard shows `Motes:` instead, so the watcher simply never matches there and the Rift
- * bucket never gets a coin cost.
- */
+/** Tracks the net coin cost of Slayer, and wallet gains from combat in other tracked activities. */
 object PurseWatcher {
-    private val PURSE_LINE = Regex("^(?:Piggy|Purse): ([\\d,]+)$")
-    private const val SLAYER_QUEST_START_MARKER = "SLAYER QUEST STARTED!"
-    private const val SLAYER_QUEST_COMPLETE_MARKER = "SLAYER QUEST COMPLETE!"
-    private const val SLAYER_QUEST_WINDOW_MS = 1_500L
+    private const val QUEST_STARTED = "SLAYER QUEST STARTED!"
+    private const val QUEST_COMPLETE = "SLAYER QUEST COMPLETE!"
+    private const val QUEST_FAILED = "SLAYER QUEST FAILED!"
+    private val questCancelled = Regex("^(?:SLAYER QUEST CANCEL(?:L)?ED!|You (?:have )?cancel(?:l)?ed your Slayer Quest[.!])$", RegexOption.IGNORE_CASE)
+    private const val RIFT_SLAYER = "Riftstalker Bloodfiend"
+    private val MAX_SINGLE_GAIN = BigDecimal("1000000")
+    private val commerceTitles = listOf("Bazaar", "Auction", "Bank", "Trade", "Order options", "Instant Buy")
 
-    /**
-     * A quest start costs at most a tier 5 spawn (100k) and at least a tier 1 (2k). Anything
-     * outside that range is pocket change from something else happening in the same window
-     * (a bazaar buy, an auction bid) and must not be booked as a slayer cost.
-     */
-    private const val MIN_SPAWN_COST = 1_000L
-    private const val MAX_SINGLE_GAIN = 1_000_000L
-    private const val MAX_SPAWN_COST = 200_000L
+    private val slayer = SlayerCoinFlow()
+    private var lastPurse: BigDecimal? = null
+    private var lastExternalMovement = 0L
+    private var lastSlayerScreenAt = 0L
 
-    private var lastPurse: Long? = null
-    private var questStartedMs = 0L
-    private var lastBossSlainMs = 0L
-    private const val BOSS_KILL_DEDUPE_MS = 3_000L
+    private val externalCoinMessage = Regex(
+        "^(?:\\[Bazaar]|\\[Auction]|\\[Bank]|(?:You (?:have )?)?(?:deposited|withdrew|purchased|sold)\\b|You claimed\\b.*\\b(?:coins|auction)\\b|You (?:died|were killed)\\b|You lost [\\d,.]+ coins\\b)",
+        RegexOption.IGNORE_CASE,
+    )
 
     fun init() {
         EventBus.subscribe(ClientTickEvent::class, ::onClientTick)
-        EventBus.subscribe(ChatEvent::class) { onChat(it) }
+        EventBus.subscribe(WorldChangedEvent::class) { clear() }
+        EventBus.subscribe(GuiClosedEvent::class) {
+            if (isCommerceScreen(it.guiName)) markExternalMovement(System.currentTimeMillis())
+        }
+        EventBus.subscribe(ChatEvent::class) {
+            if (it.unformattedText.contains("You uncovered a treasure chest!")) ActivityBucket.onTreasureChestOpened()
+        }
     }
 
-    private const val TREASURE_CHEST_MARKER = "You uncovered a treasure chest!"
-
-    private fun onChat(event: ChatEvent) {
-        val text = event.formattedText.removeFormatting()
-        if (text.contains(SLAYER_QUEST_START_MARKER)) {
-            questStartedMs = System.currentTimeMillis()
-        }
-        if (text.contains(TREASURE_CHEST_MARKER)) {
-            ActivityBucket.onTreasureChestOpened()
-        }
-        if (text.contains(SLAYER_QUEST_COMPLETE_MARKER)) {
-            val now = System.currentTimeMillis()
-            if (now - lastBossSlainMs > BOSS_KILL_DEDUPE_MS) {
-                lastBossSlainMs = now
-                ActivityBucket.onBossSlain()
+    /** Receives server chat directly so local copies of a bank notice cannot count as a payment. */
+    fun onServerChat(message: String) {
+        if (!WorldUtils.isInSkyblock() || ActivityBucket.isPaused || ActivityBucket.current == Activity.RIFT) return
+        val text = message.removeFormatting().trim()
+        val now = System.currentTimeMillis()
+        val bank = SlayerCoinFlow.readBankCharge(text)
+        when {
+            bank != null -> slayer.bankCharge(bank, now)
+            text == QUEST_STARTED -> slayer.start(now)
+            text == QUEST_COMPLETE -> {
+                if (slayer.questEnded()) ActivityBucket.onBossSlain()
             }
+            text == QUEST_FAILED || questCancelled.matches(text) -> slayer.questEnded()
+            externalCoinMessage.containsMatchIn(text) -> markExternalMovement(now)
         }
     }
 
     private fun onClientTick(event: ClientTickEvent) {
         if (!WorldUtils.isInSkyblock()) {
-            lastPurse = null
+            clear()
             return
         }
+        val now = System.currentTimeMillis()
+        if (GuiUtils.getCurrentChestName()?.let(::isSlayerScreen) == true) lastSlayerScreenAt = now
+        observeWallet(event.scoreboardLines, now)
+        if (ActivityBucket.isPaused || ActivityBucket.current == Activity.RIFT) {
+            slayer.clear()
+            return
+        }
+        ActivityBucket.slayerTypeName?.takeUnless { it == RIFT_SLAYER }?.let(slayer::observeSlice)
+        slayer.settle(now) { settlement ->
+            val charge = settlement.charge
+            BucketLedger.recordSlayerCoinCost(settlement.slice, charge.coins.toDouble(), charge.estimated, settlement.startedAt)
+        }
+    }
 
-        val purse = readPurse(event.scoreboardLines) ?: return
+    private fun observeWallet(lines: List<String>, now: Long) {
         val previous = lastPurse
+        val purse = lines.firstNotNullOfOrNull(SlayerCoinFlow::readPurse)
         lastPurse = purse
+        if (purse == null || previous == null || ActivityBucket.isPaused) return
+        val delta = purse - previous
+        if (delta.signum() == 0) return
 
-        if (previous == null || purse == previous) return
-
-        if (purse > previous) {
-            onCoinsGained(purse - previous)
+        val title = GuiUtils.getCurrentChestName()
+        if (FossilExcavation.isOpen(title)) return
+        if (title != null && isCommerceScreen(title)) {
+            markExternalMovement(now)
             return
         }
+        if (now - lastExternalMovement <= SlayerCoinFlow.WINDOW_MS) return
 
-        val spent = previous - purse
-        if (spent <= 0) return
-
-        val withinQuestWindow = System.currentTimeMillis() - questStartedMs <= SLAYER_QUEST_WINDOW_MS
-        if (Debug.enabled && spent >= 10_000) {
-            val window = if (withinQuestWindow) "yes" else "no"
-            ChatUtils.sendLocalChat("§8[purse] -${spent} (quest window: $window)", true)
-        }
-        if (!withinQuestWindow) return
-
-        if (spent !in MIN_SPAWN_COST..MAX_SPAWN_COST) {
-            if (Debug.enabled) {
-                ChatUtils.sendLocalChat("§8[purse] ignored $spent coins near a quest start", true)
+        if (delta.signum() < 0) {
+            // Manual starts may debit the wallet while the Slayer menu is still open.
+            val fromSlayerMenu = title != null && (isSlayerScreen(title) ||
+                (title.equals("Confirm", ignoreCase = true) && now - lastSlayerScreenAt <= SlayerCoinFlow.WINDOW_MS))
+            if (ActivityBucket.current != Activity.RIFT &&
+                (SkbMod.mc.getScreenCompat() == null || fromSlayerMenu)
+            ) {
+                slayer.walletDebit(delta.negate(), now)
             }
-            questStartedMs = 0L
             return
         }
 
-        CostLedger.onCoinsSpent(spent.toDouble())
-        questStartedMs = 0L
+        val activity = ActivityBucket.bucketForPickup() ?: return
+        if (SkbMod.mc.getScreenCompat() != null || delta > MAX_SINGLE_GAIN || !ActivityBucket.attackedRecently()) return
+        if (activity == Activity.SLAYER) {
+            val slice = ActivityBucket.slayerPickupSlice ?: return
+            BucketLedger.recordSlayerCoinCost(slice, -delta.toDouble(), estimated = false, receivedAtMs = now)
+        } else {
+            BucketLedger.add(activity, BucketLedger.COINS_KEY, delta.toLong())
+        }
+        if (Debug.verbose) Debug.trace("[purse] combat gain $delta -> ${activity.bucketKey}")
     }
 
-    /**
-     * Coins dropped by the mobs themselves (slayer bosses, and the occasional coin drop while
-     * mining) are income, and SkyHanni books them as a `SKYBLOCK_COIN` line of the item
-     * tracker, so the mod does the same. Selling to a bazaar or an NPC also raises the purse,
-     * but always with a screen open, hence the `currentScreen == null` guard. The numbers are
-     * only trusted while a bucket is actually counting, otherwise idle purse drift would be
-     * recorded as profit.
-     */
-    private fun onCoinsGained(gained: Long) {
-        if (gained <= 0) return
-        val activity = ActivityBucket.current ?: return
-        if (ActivityBucket.isPaused) return
-        if (SkbMod.mc.getScreenCompat() != null) return
-        // A single mob kill never pays millions, and coins only drop right after a swing.
-        // Without both checks a bazaar/auction payout booked 73M of "mining profit".
-        if (gained > MAX_SINGLE_GAIN) {
-            Debug.decision("[purse] ignored +$gained (not a mob kill)")
-            return
-        }
-        if (!ActivityBucket.attackedRecently()) {
-            Debug.decision("[purse] ignored +$gained (no recent attack)")
-            return
-        }
+    private fun isSlayerScreen(title: String): Boolean =
+        title.contains("Slayer", ignoreCase = true) || title.contains("Maddox", ignoreCase = true) ||
+            ActivityBucket.slayerTypeNames.any { title.contains(it, ignoreCase = true) }
 
-        BucketLedger.add(activity, BucketLedger.COINS_KEY, gained)
-        if (Debug.enabled && gained >= 10_000) {
-            ChatUtils.sendLocalChat("§8[purse] +${gained} coins -> ${activity.bucketKey}", true)
-        }
+    private fun isCommerceScreen(title: String): Boolean =
+        commerceTitles.any { title.contains(it, ignoreCase = true) }
+
+    private fun markExternalMovement(now: Long) {
+        lastExternalMovement = now
+        slayer.discardRecentWalletDebits(now)
     }
 
-    private fun readPurse(lines: List<String>): Long? {
-        for (line in lines) {
-            val text = line.trim()
-            if (!text.startsWith("Purse: ") && !text.startsWith("Piggy: ")) continue
-            val match = PURSE_LINE.matchEntire(text) ?: continue
-            return match.groupValues[1].replace(",", "").toLongOrNull()
-        }
-        return null
+    private fun clear() {
+        lastPurse = null
+        lastExternalMovement = 0L
+        lastSlayerScreenAt = 0L
+        slayer.clear()
     }
 }

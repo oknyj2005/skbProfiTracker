@@ -6,9 +6,11 @@ import com.skbprofitracker.events.models.ClientTickEvent
 import com.skbprofitracker.features.commands.SkbProfitCommand
 import com.skbprofitracker.features.overlays.base.TrackerViewMode
 import com.skbprofitracker.items.ItemColors
+import com.skbprofitracker.items.ItemTable
+import com.skbprofitracker.price.PriceCache
+import com.skbprofitracker.price.PriceMode
 import com.skbprofitracker.utils.CommonUtils
 import com.skbprofitracker.utils.Debug
-import com.skbprofitracker.utils.data.PersistentDataManager
 import com.skbprofitracker.utils.gui.GuiButton
 import com.skbprofitracker.utils.gui.LineAction
 import com.skbprofitracker.utils.gui.LineInfo
@@ -20,6 +22,7 @@ import net.minecraft.client.gui.screens.ChatScreen
 import net.minecraft.client.gui.screens.inventory.InventoryScreen
 import net.minecraft.network.chat.Component
 import java.text.DecimalFormat
+import kotlin.math.abs
 
 /**
  * The overlay, laid out the way Feesh lays out its profit tracker.
@@ -34,7 +37,6 @@ object ProfitOverlay {
 
     /** Rows cheaper than this are not worth a line of their own; they fold into "Other items". */
     private const val HIDE_CHEAPER_THAN = 1_000_000.0
-    private const val REBUILD_INTERVAL_MS = 500L
 
     private const val GRAY = "§7"
     private const val WHITE = "§f"
@@ -47,9 +49,30 @@ object ProfitOverlay {
 
     private val gui = SkbGui()
 
-    private var lastBuildMs = 0L
     private var displayedTarget: TrackerViewTarget? = null
-    private var itemRows: ItemRows? = null
+    private var displayedState: PanelState? = null
+    private var valuation: Valuation? = null
+    private var header = emptyList<LineInfo>()
+
+    private data class ValuationKey(
+        val target: TrackerViewTarget,
+        val content: Long,
+        val prices: Long,
+        val colors: Long,
+        val priceMode: PriceMode,
+    )
+
+    private data class PanelState(
+        val valuationKey: ValuationKey,
+        val time: Long,
+        val paused: Boolean,
+        val counting: Boolean,
+        val inCrystalHollows: Boolean,
+        val resetArmed: Boolean,
+        val selectorOpen: Boolean,
+    )
+
+    private data class Valuation(val key: ValuationKey, val view: ProfitView, val costs: CostView, val rows: ItemRows)
 
     /** Whether the slice picker is expanded inside the panel. */
     private var selectorOpen = false
@@ -85,36 +108,64 @@ object ProfitOverlay {
     }
 
     fun invalidate() {
-        lastBuildMs = 0L
+        displayedState = null
     }
 
     private fun onClientTick() {
         val now = System.currentTimeMillis()
         val target = BucketLedger.currentTarget()
-        if (target == displayedTarget && now - lastBuildMs < REBUILD_INTERVAL_MS) return
-        lastBuildMs = now
-
         if (target?.activity != displayedTarget?.activity) selectorOpen = false
         if (target == null) {
+            if (displayedTarget == null) return
             gui.clearLines()
             displayedTarget = null
-            itemRows = null
+            displayedState = null
+            valuation = null
+            header = emptyList()
             return
         }
 
-        val view = BucketLedger.view(target.activity, target.filter)
+        val key = ValuationKey(target, BucketLedger.contentRevision, PriceCache.revision, ItemColors.revision, BucketLedger.priceMode)
+        val inCrystalHollows = target.activity == Activity.MINING && ActivityBucket.isCrystalHollowsArea()
+        val state = PanelState(
+            key, BucketLedger.timeRevision, ActivityBucket.isMiningPausedInUi(),
+            ActivityBucket.isCountingFor(target.activity, target.filter),
+            inCrystalHollows,
+            target.mode == TrackerViewMode.SESSION && SkbProfitCommand.isOverlaySessionResetArmed(target, now),
+            selectorOpen,
+        )
+        val previous = displayedState
+        if (state == previous) return
+
+        val values = valuation?.takeIf { it.key == key } ?: run {
+            val view = BucketLedger.view(target.activity, target.filter)
+            val costs = CostLedger.view(target.activity, target.mode, key.priceMode, target.filter)
+            Valuation(key, view, costs, buildItemRows(view, target))
+        }
+        val elapsed = BucketLedger.elapsedSeconds(target)
+        val view = values.view.copy(elapsedSeconds = elapsed, perHour = hourly(values.view.totalValue, elapsed))
+        val newHeader = if (previous?.valuationKey != key || previous.selectorOpen != state.selectorOpen) {
+            buildHeader(view, target)
+        } else {
+            header
+        }
+        // A market refresh may occur while the client is pricing the list. Retry with the new snapshot next tick.
+        if (PriceCache.revision != key.prices) return
+        valuation = values
+        header = newHeader
+
         val nextMode = target.mode.next()
         val nextModeLabel = nextMode.name.lowercase().replaceFirstChar { it.uppercase() }
-        val paused = ActivityBucket.isPaused
+        val paused = state.paused
         gui.setButtons(
             buildList {
                 add(GuiButton(0, "${GRAY}[Click to show ${WHITE}[$nextModeLabel]${GRAY}]") {
                     useControl(target) { SkbProfitCommand.setViewMode(nextMode) }
                 })
-                add(GuiButton(1, pauseButtonText(paused)) {
-                    useControl(target) { if (ActivityBucket.isPaused == paused) SkbProfitCommand.togglePause() }
+                add(GuiButton(1, pauseButtonText(paused, state.inCrystalHollows)) {
+                    useControl(target) { if (ActivityBucket.isMiningPausedInUi() == paused) SkbProfitCommand.togglePause() }
                 })
-                add(GuiButton(2, resetButtonText(target, now)) {
+                add(GuiButton(2, resetButtonText(target, state.resetArmed)) {
                     useControl(target) { SkbProfitCommand.requestOverlayReset(target) }
                 })
                 if (view.activity == Activity.SLAYER || view.activity == Activity.MINING) {
@@ -122,24 +173,15 @@ object ProfitOverlay {
                         useControl(target) { selectorOpen = !selectorOpen }
                     })
                 }
-                if (view.activity == Activity.MINING && ActivityBucket.isCrystalHollowsArea()) {
-                    val on = ActivityBucket.nucleusTimingEnabled()
-                    add(GuiButton(4, "${GRAY}[Nucleus time: ${if (on) GREEN + "on" else RED + "off"}${GRAY}]") {
-                        useControl(target) {
-                            if (ActivityBucket.isCrystalHollowsArea() && ActivityBucket.nucleusTimingEnabled() == on) {
-                                SkbProfitCommand.setNucleusTime(!on)
-                            }
-                        }
-                    })
-                }
             }
         )
-        val items = getItemRows(view, target)
+        val items = values.rows
         gui.setScrollableLines(
-            buildHeader(view, target), items.details, buildFooter(view, target, items.summary),
+            header, items.details, buildFooter(view, target, items.summary, values.costs, state),
             MAX_VISIBLE_ITEMS, resetScroll = displayedTarget != target,
         )
         displayedTarget = target
+        displayedState = state
         // The move screen renders placeholders instead of the live overlay, so keep them equal to
         // what is on screen right now; a fixed sample made slayer numbers show up in a mining hole.
         gui.setSampleLines(buildSample(gui.getLines()))
@@ -184,19 +226,11 @@ object ProfitOverlay {
     }
 
     private data class ItemRows(
-        val target: TrackerViewTarget,
-        val items: List<ItemLine>,
         val details: List<LineInfo>,
         val summary: LineInfo?,
     )
 
-    private fun getItemRows(view: ProfitView, target: TrackerViewTarget): ItemRows {
-        itemRows?.let { cached ->
-            if (cached.target == target && cached.items == view.items) {
-                return cached
-            }
-        }
-
+    private fun buildItemRows(view: ProfitView, target: TrackerViewTarget): ItemRows {
         val detailedItems = mutableListOf<ItemLine>()
         var otherTypes = 0
         var otherAmount = 0L
@@ -224,27 +258,43 @@ object ProfitOverlay {
                     "${WHITE}$otherTypes ${GRAY}types)  ${GOLD}${coins(otherValue)}"
             )
         } else null
-        return ItemRows(target, view.items, details, summary).also { itemRows = it }
+        return ItemRows(details, summary)
     }
 
-    private fun buildFooter(view: ProfitView, target: TrackerViewTarget, otherItems: LineInfo?): List<LineInfo> {
+    private fun buildFooter(
+        view: ProfitView,
+        target: TrackerViewTarget,
+        otherItems: LineInfo?,
+        cost: CostView,
+        state: PanelState,
+    ): List<LineInfo> {
         val lines = mutableListOf<LineInfo>()
         if (otherItems != null) lines.add(otherItems)
-        if (view.unpricedTypes > 0) {
-            lines.add(LineInfo("${GRAY}- ${view.unpricedTypes} unpriced types"))
+        val unpricedCosts = cost.lines.filter { it.unitPrice == null }
+        val partial = view.unpricedTypes > 0 || unpricedCosts.isNotEmpty()
+        if (partial) {
+            val missing = buildList {
+                for (item in view.items) {
+                    if (item.unitPrice == null) add(Component.literal("Loot: ${item.amount}x ${item.name}"))
+                }
+                for (item in unpricedCosts) {
+                    add(Component.literal("Cost: ${item.amount}x ${item.name}"))
+                }
+            }
+            lines.add(LineInfo("${GRAY}- ${missing.size} unpriced types", tooltip = missing))
         }
 
         lines.add(LineInfo())
 
-        val priceMode = BucketLedger.priceMode
+        val priceMode = state.valuationKey.priceMode
         val badge = "[${priceMode.shortName}]"
         val changePrice: () -> Unit = {
             useControl(target) {
                 if (BucketLedger.priceMode == priceMode) SkbProfitCommand.setPriceMode(priceMode.next())
             }
         }
-        val cost = CostLedger.view(view.activity, view.mode, priceMode, view.filter)
-        val hasCosts = view.activity != Activity.RIFT && cost.totalValue > 0.0
+        val hasCosts = view.activity != Activity.RIFT &&
+            (cost.lines.isNotEmpty() || cost.coinsSpent != 0.0 || cost.estimatedSlayerFees > 0)
 
         // A slayer type without history would otherwise show the cost line of the combined
         // bucket next to a zero income: the numbers would contradict each other.
@@ -253,22 +303,34 @@ object ProfitOverlay {
             return lines
         }
 
-        // Feesh prints a single bottom line: "Costs" + "Net profit" when something was paid,
-        // and just "Profit" when nothing was. Printing both Profit and Net profit makes the
-        // same number appear twice, so we follow Feesh and keep only one.
         if (hasCosts) {
-            val label = if (view.mode == TrackerViewMode.SESSION) "Session costs" else "Total costs"
+            val scope = if (view.mode == TrackerViewMode.SESSION) "Session" else "Total"
+            val label = when {
+                unpricedCosts.isNotEmpty() -> "$scope priced costs"
+                cost.totalValue < 0.0 -> "$scope cost credit"
+                else -> "$scope costs"
+            }
             val breakdown = buildList {
                 for (line in cost.lines) {
                     val value = if (line.unitPrice != null) coins(line.value) else "unpriced"
                     add(Component.literal("${line.amount}x ${line.name}  $value"))
                 }
-                if (cost.coinsSpent > 0.0) add(Component.literal("Coins spent  ${coins(cost.coinsSpent)}"))
+                if (cost.coinsSpent != 0.0 || cost.estimatedSlayerFees > 0) {
+                    val coinLabel = if (view.activity == Activity.SLAYER) "Slayer coin flow" else "Coins spent"
+                    val coinSign = if (cost.coinsSpent < 0.0) "+" else if (cost.coinsSpent > 0.0) "-" else ""
+                    add(Component.literal("$coinLabel  $coinSign${coins(abs(cost.coinsSpent))}"))
+                }
+                if (cost.estimatedSlayerFees > 0) {
+                    add(Component.literal("Includes ${cost.estimatedSlayerFees} rounded bank fee(s)"))
+                }
             }
-            lines.add(LineInfo("$AQUA$label: ${RED}-${coins(cost.totalValue)}", tooltip = breakdown))
+            val costColor = if (cost.totalValue > 0.0) RED else GREEN
+            val costSign = if (cost.totalValue > 0.0) "-" else if (cost.totalValue < 0.0) "+" else ""
+            lines.add(LineInfo("$AQUA$label: $costColor$costSign${coins(abs(cost.totalValue))}", tooltip = breakdown))
 
             val net = view.totalValue - cost.totalValue
-            val netPerHour = view.perHour - cost.perHour
+            val profitLabel = if (partial) "Partial net profit" else "Net profit"
+            val netPerHour = hourly(net, view.elapsedSeconds)
             val color = if (net < 0.0) RED else GOLD
             val perHour = if (view.showPerHour) {
                 "${GRAY}(${color}${coins(netPerHour)}${GRAY}/h) "
@@ -277,13 +339,14 @@ object ProfitOverlay {
             }
             lines.add(
                 LineInfo(
-                    "${AQUA}Net profit: ${color}${BOLD}${coins(net)} ${RESET}" +
+                    "${AQUA}$profitLabel: ${color}${BOLD}${coins(net)} ${RESET}" +
                         "$perHour$GRAY$badge",
                     clickSuffix = badge,
                     onClick = changePrice,
                 )
             )
         } else {
+            val profitLabel = if (partial) "Partial profit" else "Profit"
             val perHour = if (view.showPerHour) {
                 "${GRAY}(${GOLD}${coins(view.perHour)}${GRAY}/h) "
             } else {
@@ -291,7 +354,7 @@ object ProfitOverlay {
             }
             lines.add(
                 LineInfo(
-                    "${AQUA}Profit: ${GOLD}${BOLD}${coins(view.totalValue)} ${RESET}" +
+                    "${AQUA}$profitLabel: ${GOLD}${BOLD}${coins(view.totalValue)} ${RESET}" +
                         "$perHour$GRAY$badge",
                     clickSuffix = badge,
                     onClick = changePrice,
@@ -302,7 +365,7 @@ object ProfitOverlay {
         // SkyHanni prints the boss count right above the profit block; keeping it at the
         // bottom next to the timer makes the "per boss" mental math one glance.
         if (view.activity == Activity.SLAYER && view.bosses > 0) {
-            val perHour = if (view.elapsedSeconds > 0) view.bosses * 3600.0 / view.elapsedSeconds else 0.0
+            val perHour = hourly(view.bosses.toDouble(), view.elapsedSeconds)
             lines.add(
                 LineInfo(
                     "${AQUA}Bosses killed: ${WHITE}${comma(view.bosses)} " +
@@ -324,11 +387,11 @@ object ProfitOverlay {
         }
 
         val hasTimedSlice = view.activity != Activity.MINING ||
-            view.filter == ActivityBucket.MINING_NORMAL || view.filter == ActivityBucket.MINING_NUCLEUS
+            view.filter == ActivityBucket.MINING_NORMAL
         if (hasTimedSlice) {
             val status = when {
-                ActivityBucket.isPaused -> " ${GRAY}[Paused]"
-                !ActivityBucket.isCountingFor(view.activity, view.filter) -> " ${GRAY}[Idle]"
+                state.paused -> " ${GRAY}[Paused]"
+                !state.counting -> " ${GRAY}[Idle]"
                 else -> ""
             }
             lines.add(
@@ -380,9 +443,10 @@ object ProfitOverlay {
     private fun comma(value: Long): String = DecimalFormat("#,##0").format(value)
 
     private fun row(item: ItemLine): List<String> {
-        val name = item.name.removeSuffix(" Gemstone")
+        val name = ItemTable.getPetDisplayName(item.key)
+            ?: ItemColors.get(item.key) + item.name.removeSuffix(" Gemstone")
         return listOf(
-            "${GRAY}- ${WHITE}${count(item.amount)}${GRAY}x ${ItemColors.get(item.key)}$name",
+            "${GRAY}- ${WHITE}${count(item.amount)}${GRAY}x $name",
             "${GOLD}${coins(item.value)}",
         )
     }
@@ -410,18 +474,16 @@ object ProfitOverlay {
         return "${GRAY}[$title: ${WHITE}$label${GRAY} ${GRAY}▾${GRAY}]"
     }
 
-    private fun pauseButtonText(paused: Boolean): String =
-        if (paused) {
-            "${GRAY}[${GREEN}Click to resume${GRAY}]"
-        } else {
-            "${GRAY}[${GOLD}Click to pause${GRAY}]"
-        }
+    private fun pauseButtonText(paused: Boolean, inCrystalHollows: Boolean): String = when {
+        paused && inCrystalHollows -> "${GRAY}[${GREEN}Start mining${GRAY}]"
+        paused -> "${GRAY}[${GREEN}Click to resume${GRAY}]"
+        else -> "${GRAY}[${GOLD}Click to pause${GRAY}]"
+    }
 
-    private fun resetButtonText(target: TrackerViewTarget, now: Long): String {
+    private fun resetButtonText(target: TrackerViewTarget, armed: Boolean): String {
         if (target.mode == TrackerViewMode.TOTAL) {
             return "${GRAY}[Click to reset ${WHITE}Total${GRAY}]"
         }
-        val armed = SkbProfitCommand.isOverlaySessionResetArmed(target, now)
         return if (armed) {
             "${GRAY}[${RED}Click again to clear ${WHITE}Session${GRAY}]"
         } else {
@@ -434,4 +496,7 @@ object ProfitOverlay {
         amount.toString().reversed().chunked(3).joinToString(" ").reversed()
 
     private fun coins(value: Double): String = CommonUtils.toShortNumber(value) ?: "0"
+
+    private fun hourly(value: Double, seconds: Long): Double =
+        if (seconds > 0) value * 3_600.0 / seconds else 0.0
 }
