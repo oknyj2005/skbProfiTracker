@@ -38,6 +38,21 @@ configurations.configureEach {
 }
 
 repositories {
+    // Register Loom's LWJGL repository name before it restricts the whole group to Central.
+    val lwjglCentral = mavenCentral { name = "MavenCentralLWJGL" }
+    exclusiveContent {
+        forRepositories(lwjglCentral)
+        filter {
+            includeVersionByRegex("org\\.lwjgl", ".+", "(?!.*-mojang-).+")
+        }
+    }
+    exclusiveContent {
+        forRepository { maven("https://libraries.minecraft.net/") }
+        filter {
+            includeVersionByRegex("org\\.lwjgl", ".+", ".+-mojang-.+")
+        }
+    }
+
     maven("https://maven.fabricmc.net/")
     maven("https://repo.essential.gg/repository/maven-public")
     // Maven Central mirrors first: GitHub Actions IPs get rate limited (429) by repo.maven.apache.org.
